@@ -1,6 +1,6 @@
 from collections import defaultdict
 
-from section_detector import SectionDetector
+from parser.section_detector import SectionDetector
 
 
 class SectionParser:

@@ -1,5 +1,5 @@
-from textAndLinkSeperator import extract_pdf
-from personalDetailsExtraction import *
+from parser.textAndLinkSeperator import extract_pdf
+from parser.personalDetailsExtraction import *
 
 pdf = extract_pdf("D:/Development/ATS-Git_version/files/res2.pdf")
 

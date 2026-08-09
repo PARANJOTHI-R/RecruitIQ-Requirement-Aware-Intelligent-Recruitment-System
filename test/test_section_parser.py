@@ -1,5 +1,5 @@
-from normalizer import normalize_text
-from section_parser import SectionParser
+from parser.normalizer import normalize_text
+from parser.section_parser import SectionParser
 
 
 with open("output.txt", encoding="utf8") as f:

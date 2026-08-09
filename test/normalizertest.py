@@ -1,4 +1,4 @@
-from normalizer import normalize_text
+from parser.normalizer import normalize_text
 
 with open("output.txt", "r", encoding="utf8") as f:
     raw = f.read()

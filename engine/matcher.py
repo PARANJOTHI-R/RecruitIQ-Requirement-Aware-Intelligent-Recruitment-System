@@ -1,4 +1,4 @@
-from skill_normalizer import normalize_skill_list
+from engine.skill_normalizer import normalize_skill_list
 
 
 def match_skills(job_skills: list, candidate_skills: list) -> list:

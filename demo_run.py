@@ -6,8 +6,8 @@ system does requirement-aware ranking, not just "similarity."
 Run: python demo_run.py
 """
 import json
-from job_requirement_analyzer import analyze_job_description
-from scoring_engine import score_candidate
+from engine.job_requirement_analyzer import analyze_job_description
+from engine.scoring_engine import score_candidate
 
 JD_TEXT = """
 Java Backend Developer

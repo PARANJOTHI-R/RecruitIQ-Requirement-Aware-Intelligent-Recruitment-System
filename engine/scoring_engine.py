@@ -1,4 +1,4 @@
-from matcher import match_skills
+from engine.matcher import match_skills
 
 
 def score_candidate(job_profile: dict, candidate: dict) -> dict:

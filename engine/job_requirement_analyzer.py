@@ -1,68 +1,126 @@
+# engine/job_requirement_analyzer.py
+#
+# Rule-based JD parser.  No LLM.
+# Produces a flat profile dict with keys that match what scoring_engine expects.
+
 import re
-import json
 
 
 def analyze_job_description(jd_text: str) -> dict:
     """
-    Converts a raw job description into a structured requirement profile.
-    This is a RULE-BASED analyzer (no LLM/embedding needed) - good enough
-    for a POC. Maps to Section 9 of the project doc: "Job Requirement Analyzer".
+    Convert raw JD text → structured requirement profile.
+
+    Returns:
+    {
+        "required_skills":         [...],
+        "preferred_skills":        [...],
+        "minimum_experience_years": int,
+    }
     """
     profile = {
         "required_skills": [],
         "preferred_skills": [],
-        "experience": {"minimum_years": 0},
-        "education": [],
-        "constraints": [],
+        "minimum_experience_years": 0,
     }
 
     current_section = None
+
     for line in jd_text.splitlines():
         stripped = line.strip()
         if not stripped:
             continue
         lower = stripped.lower()
 
-        if lower.startswith("required"):
+        # ── Section header detection ─────────────────────────────────────────
+        if re.match(r"required\s*skills?\s*:?", lower):
             current_section = "required"
-            stripped = stripped.split(":", 1)[-1]
-        elif lower.startswith("preferred"):
+            # Content after the colon on the same line (if any)
+            after = stripped.split(":", 1)[-1].strip()
+            stripped = after
+            lower = after.lower()
+        elif re.match(r"preferred\s*skills?\s*:?", lower):
             current_section = "preferred"
-            stripped = stripped.split(":", 1)[-1]
-        elif lower.startswith("education"):
+            after = stripped.split(":", 1)[-1].strip()
+            stripped = after
+            lower = after.lower()
+        elif re.match(r"education\s*:?", lower):
             current_section = "education"
-            stripped = stripped.split(":", 1)[-1]
+            continue
 
-        # pick up "2+ years" / "3 years" anywhere in the line
+        # ── Experience year extraction (anywhere in the JD) ──────────────────
         exp_match = re.search(r"(\d+)\+?\s*years?", lower)
         if exp_match:
             years = int(exp_match.group(1))
-            profile["experience"]["minimum_years"] = max(
-                profile["experience"]["minimum_years"], years
+            profile["minimum_experience_years"] = max(
+                profile["minimum_experience_years"], years
             )
 
-        if current_section in ("required", "preferred") and stripped.strip():
-            skills = [s.strip() for s in stripped.split(",") if s.strip()]
-            # drop fragments like "2+ years experience" that aren't real skills
+        # ── Skill ingestion ───────────────────────────────────────────────────
+        if current_section in ("required", "preferred") and stripped:
+            # If this looks like a prose sentence rather than a skill list, stop
+            # (e.g. "The candidate should have experience developing...")
+            if _is_prose(stripped):
+                current_section = None
+                continue
+            # Skills may appear comma-separated on one line OR one per line
+            skills = [s.strip() for s in re.split(r"[,\n]", stripped) if s.strip()]
+            # Drop obvious non-skills: year fragments, empty, very long phrases
             skills = [
                 s for s in skills
-                if not re.match(r"^\d+\+?\s*years?", s.strip().lower())
+                if s
+                and not re.match(r"^\d+\+?\s*years?", s.lower())
+                and len(s) <= 40
+                and not _is_prose(s)
             ]
             if current_section == "required":
                 profile["required_skills"].extend(skills)
             else:
                 profile["preferred_skills"].extend(skills)
-        elif current_section == "education" and stripped.strip():
-            profile["education"].append(stripped.strip())
+
+    # Deduplicate while preserving order
+    profile["required_skills"] = _dedup(profile["required_skills"])
+    profile["preferred_skills"] = _dedup(profile["preferred_skills"])
 
     return profile
 
 
-if __name__ == "__main__":
-    sample_jd = """
-    Java Backend Developer
-    Required: Java, Spring Boot, REST APIs, SQL, 2+ years experience
-    Preferred: Docker, AWS, Kafka
-    Education: Computer Science or related field
+def _is_prose(text: str) -> bool:
     """
-    print(json.dumps(analyze_job_description(sample_jd), indent=2))
+    Returns True if the text looks like a prose sentence rather than a skill name.
+    Heuristics:
+    - More than 6 words
+    - Contains common sentence starters or verbs
+    """
+    words = text.strip().split()
+    if len(words) > 6:
+        return True
+    prose_starters = (
+        "the ", "we ", "our ", "candidate ", "applicant ",
+        "you ", "this ", "a ", "an ", "please ",
+    )
+    lower = text.lower()
+    if any(lower.startswith(s) for s in prose_starters):
+        return True
+    # Contains sentence-level conjunctions
+    if re.search(r"\b(should|must|will|can|have|has|with|and|or|but|for|are|is)\b", lower):
+        if len(words) > 3:
+            return True
+    return False
+
+
+def _dedup(lst: list) -> list:
+    seen = set()
+    out = []
+    for x in lst:
+        xl = x.lower()
+        if xl not in seen:
+            seen.add(xl)
+            out.append(x)
+    return out
+
+
+
+if __name__ == "__main__":
+    import json
+    sample = open("job_description.txt").read()
+    print(json.dumps(analyze_job_description(sample), indent=2))

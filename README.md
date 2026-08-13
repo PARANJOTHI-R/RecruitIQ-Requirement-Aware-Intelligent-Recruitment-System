@@ -1,75 +1,70 @@
-# ExplainHire
+# RecruitIQ (ExplainHire)
 
-### Explainable AI Recruitment Screening System
+### Requirement-Aware Intelligent Recruitment & Candidate Ranking System
 
-ExplainHire is an AI-assisted recruitment screening system designed to make candidate screening **requirement-aware, evidence-backed, and explainable**.
+RecruitIQ is an explainable AI-assisted recruitment screening system designed to make candidate screening **requirement-aware, evidence-backed, and transparent**.
 
-Instead of relying only on keyword matching or a single semantic similarity score, ExplainHire combines **resume parsing, skill normalization, exact matching, semantic matching, evidence verification, requirement-aware scoring, and LLM-generated insights** to produce transparent candidate rankings.
-
-The goal is not simply to answer:
-
-> "How similar is this resume to the job description?"
-
-but:
-
-> **"How well does this candidate satisfy the actual requirements, what evidence supports the decision, what is missing, and why was the candidate ranked here?"**
+It combines **layout-aware resume parsing, skill normalization, deterministic matching, MiniLM semantic similarity with false-positive guards, verbatim evidence extraction, requirement-aware scoring, and Gemini-powered recruiter insights**.
 
 ---
 
-## 🎯 Problem
+## 🚀 Quick Start (Web Application)
 
-Traditional resume screening systems often rely on:
+### 1. Run the Web Application
+Run the unified FastAPI + React server:
 
-- Keyword matching
-- Basic filtering
-- Single similarity scores
-- Black-box AI predictions
+```bash
+# Activate virtual environment
+.\.venv\Scripts\activate
 
-These approaches can create problems when:
+# Launch RecruitIQ Web Server
+python server.py
+```
 
-- A candidate uses different wording for the same skill.
-- Semantically related technologies are incorrectly treated as equivalent.
-- A candidate has the required skills but lacks the required experience.
-- A candidate has strong semantic similarity but misses a critical requirement.
-- Recruiters cannot understand why a candidate received a particular score.
+Then open your browser at **`http://127.0.0.1:8000`** (or API docs at `http://127.0.0.1:8000/docs`).
 
-ExplainHire addresses these problems by separating **semantic similarity from actual requirement satisfaction**.
+### 2. Frontend Development Mode (Hot Reload)
+If you want to edit the React frontend with instant hot-reloading:
+
+```bash
+cd frontend
+npm run dev
+```
+Open **`http://localhost:5173`**. Requests to `/api/*` are automatically proxied to the FastAPI server at `http://127.0.0.1:8000`.
 
 ---
 
-## 💡 Core Idea
+## 🌟 Key Web Platform Features
 
-ExplainHire follows a hybrid recruitment screening approach:
+1. **Light Theme UI**: Clean, responsive, modern interface built with React, Plus Jakarta Sans typography, glassmorphism cards, and podium badges.
+2. **Flexible Job Description Ingestion**:
+   - **Paste / Edit Text** with 4 built-in industry role presets (*Backend Engineer*, *Full Stack*, *Java Enterprise*, *AI / Data Scientist*).
+   - **Upload PDF JD**.
+   - **Upload Word (.docx, .doc) or Text JD**.
+   - Live requirement extraction preview (Required Skills, Preferred Skills, Min Experience).
+3. **Multi-Resume Batch Uploader**:
+   - Multi-file drag-and-drop zone supporting `.pdf`, `.docx`, `.doc`, `.txt`.
+   - **1-Click "Demo Pool (13)"**: Instantly screen the 13 benchmark candidate profiles.
+4. **Explainable Screening Leaderboard**:
+   - Ranks with visual podium medals (🥇 #1, 🥈 #2, 🥉 #3, etc.).
+   - Overall Score (%) with color-coded score pills.
+   - Required Skill Fit %, Preferred Skill Fit %, Experience Fit %, and Parser Quality flags (`[!REVIEW]`, `DEGRADED`).
+   - One-click CSV export and candidate filtering/search.
+5. **Candidate Match Inspector (Drawer)**:
+   - **Skill Matching Table**: Status badges (`[+] Match`, `[-] Missing`), Match Type (`Exact`, `Normalized`, `Semantic`), and **verbatim resume evidence snippets**.
+   - **Deterministic Scoring Matrix**: 50% Required + 20% Preferred + 30% Experience.
+   - **MiniLM Semantic Similarity Gauge** with false-positive prevention explanation.
+   - **Parser Quality Diagnostic Banners**.
+6. **Gemini AI Recruiter Insights & Follow-up Q&A**:
+   - Executive Candidate Summary, Key Strengths, Skill Gaps, Experience Relevance, Interview Focus Questions.
+   - Interactive Recruiter Chat Copilot scoped to the candidate's profile.
 
-```text
-                    Job Description
-                           │
-                           ▼
-                 Requirement Analyzer
-                           │
-             ┌─────────────┼─────────────┐
-             ▼             ▼             ▼
-        Required       Preferred      Experience
-         Skills          Skills        Criteria
-             │             │             │
-             └─────────────┼─────────────┘
-                           │
-                           ▼
-                     Candidate Profile
-                           │
-             ┌─────────────┼─────────────┐
-             ▼             ▼             ▼
-        Exact Match    Semantic Match   Evidence
-             │             │             │
-             └─────────────┼─────────────┘
-                           ▼
-                    Scoring Engine
-                           │
-                           ▼
-                  Explainable Ranking
-                           │
-                           ▼
-                    AI Insights
-                           │
-                           ▼
-                  Recruiter Dashboard
+---
+
+## 🖥️ Command Line (CLI) Terminal Mode
+
+You can also run the original command line terminal screening tool:
+
+```bash
+python main.py
+```

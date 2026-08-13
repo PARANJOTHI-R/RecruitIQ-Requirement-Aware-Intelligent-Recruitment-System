@@ -1,6 +1,6 @@
-import fitz
+import pymupdf
 
-file=fitz.open("D:/Development/ATS-Git_version/files/res2.pdf")
+file=pymupdf.open("D:/Development/ATS-Git_version/files/res2.pdf")
 
 output_txt=""
 

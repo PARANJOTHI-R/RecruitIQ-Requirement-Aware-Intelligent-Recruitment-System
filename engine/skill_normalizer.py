@@ -55,6 +55,7 @@ ALIAS_MAP = {
     "flask": "Flask",
     "fastapi": "FastAPI",
     "fast api": "FastAPI",
+    "gradio": "Gradio",
 
     # Databases
     "mysql": "MySQL",
@@ -128,6 +129,10 @@ ALIAS_MAP = {
     "huggingface": "Hugging Face",
     "hugging face": "Hugging Face",
     "sentence transformers": "Sentence Transformers",
+    "langchain": "LangChain",
+    "lang chain": "LangChain",
+    "gemini": "Gemini AI",
+    "gemini ai": "Gemini AI",
 
     # Architecture patterns
     "microservices": "Microservices",
@@ -148,6 +153,29 @@ ALIAS_MAP = {
     "ruby": "Ruby",
     "scala": "Scala",
     "r": "R",
+
+    # Design & UI
+    "figma": "Figma",
+    "adobe illustrator": "Adobe Illustrator",
+    "framer": "Framer",
+    "blender": "Blender",
+    "photoshop": "Photoshop",
+    "illustrator": "Adobe Illustrator",
+
+    # AR / VR / 3D / Game engines
+    "unity": "Unity",
+    "unreal": "Unreal Engine",
+    "unreal engine": "Unreal Engine",
+    "vuforia": "Vuforia",
+    "arcore": "ARCore",
+    "ar core": "ARCore",
+    "arkit": "ARKit",
+    "ar kit": "ARKit",
+    "openxr": "OpenXR",
+
+    # HTML/CSS combined form (seen in resumes as a compound)
+    "html/css": "HTML/CSS",
+    "html / css": "HTML/CSS",
 }
 
 # Set of valid canonical skill names (display form). Only these pass the whitelist.

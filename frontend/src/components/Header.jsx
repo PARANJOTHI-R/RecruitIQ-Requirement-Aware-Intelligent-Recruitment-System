@@ -11,7 +11,6 @@ export default function Header({ onQuickDemo, onReset, isScreening, resultsCount
         <div>
           <div className="brand-title">
             RecruitIQ
-            <span className="brand-badge">ATS Engine v2.0</span>
           </div>
           <div className="brand-tagline">
             Requirement-Aware Intelligent Recruitment & Ranking System
@@ -20,20 +19,7 @@ export default function Header({ onQuickDemo, onReset, isScreening, resultsCount
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <div className="chip chip-emerald" style={{ padding: '6px 12px' }}>
-          <CheckCircle2 size={14} />
-          <span>Semantic AI Ready</span>
-        </div>
-
-        <button 
-          onClick={onQuickDemo} 
-          disabled={isScreening}
-          className="btn btn-accent btn-sm"
-          title="Run 1-click screening with sample JD and 13 demo resumes"
-        >
-          <Zap size={14} />
-          <span>1-Click Full Demo</span>
-        </button>
+        
 
         {(resultsCount > 0) && (
           <button 

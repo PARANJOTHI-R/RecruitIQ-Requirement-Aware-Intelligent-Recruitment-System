@@ -1,9 +1,9 @@
-import fitz
+import pymupdf
 
 
 def extract_pdf(pdf_path):
 
-    doc = fitz.open(pdf_path)
+    doc = pymupdf.open(pdf_path)
 
     text = ""
     links = []

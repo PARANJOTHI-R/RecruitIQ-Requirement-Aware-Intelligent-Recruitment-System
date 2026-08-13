@@ -21,7 +21,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Optional
 
-import fitz  # PyMuPDF
+import pymupdf  # PyMuPDF
 
 # ---------------------------------------------------------------------------
 # Known section headings -- these must NEVER become candidate names
@@ -277,7 +277,7 @@ def extract_layout(pdf_path: str) -> LayoutDocument:
     Primary entry point. Extracts a LayoutDocument from a PDF file.
     Uses PyMuPDF block-level dict extraction to preserve spatial metadata.
     """
-    doc = fitz.open(pdf_path)
+    doc = pymupdf.open(pdf_path)
 
     all_blocks: list[Block] = []
     links: list[str] = []
@@ -295,7 +295,7 @@ def extract_layout(pdf_path: str) -> LayoutDocument:
                 links.append(link["uri"])
 
         # Extract blocks with full metadata
-        page_dict = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
+        page_dict = page.get_text("dict", flags=pymupdf.TEXT_PRESERVE_WHITESPACE)
 
         for raw_block in page_dict.get("blocks", []):
             if raw_block.get("type") != 0:  # skip image blocks

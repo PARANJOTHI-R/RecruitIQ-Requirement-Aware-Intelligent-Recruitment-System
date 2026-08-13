@@ -2,8 +2,18 @@
 #
 # MiniLM-based semantic similarity using sentence-transformers.
 # Loaded once as a module-level singleton so we don't reload per-candidate.
+#
+# Hugging Face Authentication
+# ----------------------------
+# Reads HF_TOKEN from the environment (populated by load_dotenv() in main.py).
+# Passes the token to SentenceTransformer so authenticated Hub access is used,
+# avoiding unauthenticated-request warnings and rate limits.
+# The token is NEVER printed or returned in any output.
+# If HF_TOKEN is absent, falls back to unauthenticated loading (no crash).
 
 from __future__ import annotations
+
+import os
 
 import numpy as np
 
@@ -14,7 +24,16 @@ def _get_model():
     global _model
     if _model is None:
         from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer("all-MiniLM-L6-v2")
+
+        # HF_TOKEN loaded into os.environ by load_dotenv() in main.py.
+        # Pass it to SentenceTransformer for authenticated Hub access.
+        # If absent or empty, pass None (unauthenticated, may emit a warning).
+        hf_token: str | None = os.environ.get("HF_TOKEN", "").strip() or None
+
+        _model = SentenceTransformer(
+            "all-MiniLM-L6-v2",
+            token=hf_token,  # type: ignore[arg-type]
+        )
     return _model
 
 

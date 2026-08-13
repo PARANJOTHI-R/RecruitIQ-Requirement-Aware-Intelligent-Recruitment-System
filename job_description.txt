@@ -1,19 +1,23 @@
-Java Backend Developer
+Backend Software Engineer
 
-We are looking for a Java Backend Developer with at least 2 years
-of experience building backend applications.
+We are looking for a Backend Software Engineer with at least 1 year of experience building scalable backend services and web applications.
 
 Required Skills:
-Java
-Spring Boot
+
+Python
+FastAPI
 REST APIs
-SQL
+PostgreSQL
 Git
 
 Preferred Skills:
+
 Docker
 AWS
+Redis
+MongoDB
 Microservices
+CI/CD
+Linux
 
-The candidate should have experience developing backend applications
-and working with databases and APIs.
+The candidate should have experience developing backend applications, designing and consuming REST APIs, working with relational databases, and using Git for version control. Experience with cloud deployment, caching, containerization, and microservices architecture is preferred.

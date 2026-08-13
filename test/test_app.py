@@ -9,14 +9,9 @@ def test_flask_app():
     app.config["TESTING"] = True
     client = app.test_client()
 
-    # Test GET /
-    res = client.get("/")
-    assert res.status_code == 200
-    assert b"RecruitIQ" in res.data
-    assert b"Job Description" in res.data
-    print("[OK] GET / test passed")
+    # (Removed GET / test since the API no longer serves HTML)
 
-    # Test POST / with files
+    # Test POST /api/screen with files
     pdf1_path = os.path.join("files", "Resume-24cdr080.pdf")
     pdf2_path = os.path.join("files", "res2.pdf")
 
@@ -32,15 +27,22 @@ Education: Computer Science or related field""",
                 (io.BytesIO(b"Not a valid PDF"), "corrupted.pdf")
             ]
         }
-        res_post = client.post("/", data=data, content_type="multipart/form-data")
+        res_post = client.post("/api/screen", data=data, content_type="multipart/form-data")
         assert res_post.status_code == 200
-        html = res_post.data.decode("utf-8")
-        assert "Ranked Candidate Leaderboard" in html
-        assert "Paranjothi R" in html
-        assert "Jason Miller" in html
-        assert "corrupted.pdf" in html  # error section should report corrupted.pdf
-        assert "Languages: Java" in html  # evidence check
-        print("[OK] POST / with multiple resumes and error simulation passed")
+        
+        json_data = res_post.get_json()
+        assert json_data is not None, "Response is not JSON"
+        assert json_data["total_processed"] == 3
+        assert json_data["successful_count"] == 2
+        
+        names = [c["name"] for c in json_data["candidates"]]
+        assert "Paranjothi R" in names
+        assert "Jason Miller" in names
+        
+        errors = [e["filename"] for e in json_data["errors"]]
+        assert "corrupted.pdf" in errors
+        
+        print("[OK] POST /api/screen with multiple resumes and error simulation passed")
 
     print("\nALL FLASK TESTS PASSED SUCCESSFULLY!")
 

@@ -27,6 +27,16 @@ from pathlib import Path
 from datetime import date
 from typing import Optional
 
+# ── Load .env FIRST — before any module that reads os.environ ────────────────
+# load_dotenv() is called exactly once here so that GEMINI_API_KEY, HF_TOKEN,
+# and GEMINI_MODEL are available to engine/gemini_insights.py and
+# engine/semantic_matcher.py without each module needing its own dotenv call.
+try:
+    from dotenv import load_dotenv as _load_dotenv
+    _load_dotenv(override=False)  # does not overwrite values already in env
+except ImportError:
+    pass  # python-dotenv not installed — rely on environment variables directly
+
 # Force UTF-8 stdout on Windows so Unicode chars print correctly
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     try:
@@ -59,6 +69,7 @@ from parser.section_parser import SectionParser
 from engine.skill_normalizer import extract_skills_from_text, normalize_skill_list
 from engine.job_requirement_analyzer import analyze_job_description
 from engine.scoring_engine import score_candidate
+from engine.gemini_insights import generate_recruiter_insights
 
 # ── Constants ───────────────────────────────────────────────────────────────
 FILES_DIR = Path("files")
@@ -333,8 +344,11 @@ def validate_candidate(candidate_json: dict) -> dict:
     if not ok:
         critical_warnings = [
             w for w in warnings
-            if any(kw in w for kw in ("NAME_IS_SECTION", "ZERO_EXTRACTED"))
+            if any(kw in w for kw in ("NAME_MISSING", "NAME_IS_SECTION", "SKILLS_SECTION_NOT_FOUND_AND_ZERO_EXTRACTED"))
         ]
+        # SKILLS_SECTION_PRESENT_BUT_ZERO_EXTRACTED is DEGRADED, not FAILED:
+        # it means the section existed but held no technical keywords
+        # (correct for non-tech resumes like warehouse workers).
         status = "failed" if critical_warnings else "degraded"
     else:
         status = "ok"
@@ -359,135 +373,78 @@ def process_resume(pdf_path: str) -> dict:
     if not path.exists():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
-    layout_doc: Optional[LayoutDocument] = None
-    layout_error: Optional[str] = None
+    def _build_result(method: str, layout_doc: Optional[LayoutDocument] = None) -> dict:
+        if method == "layout" and layout_doc is not None:
+            sections = layout_doc.sections
+            personal = layout_doc.personal
+            clean_text = get_full_text(layout_doc)
+            links = layout_doc.links
+            parse_method = "layout"
+            clean_text = normalize_text(clean_text)
+        else:
+            extracted = extract_pdf(str(path))
+            raw_text: str = extracted.get("text", "")
+            links: list[str] = extracted.get("links", [])
+            clean_text = normalize_text(raw_text)
+
+            parser = SectionParser()
+            sections = parser.segment(clean_text)
+
+            personal = {
+                "name": extract_name(clean_text) or "Unknown Candidate",
+                "name_confidence": 0.5,  # unknown confidence for fallback
+                "email": extract_email(clean_text),
+                "phone": extract_phone(clean_text),
+                "github": extract_github(links, clean_text),
+                "linkedin": extract_linkedin(links, clean_text),
+            }
+            parse_method = "linear_fallback"
+
+        skills = _parse_candidate_skills(sections, clean_text)
+        experience_years = _parse_experience_years(sections)
+        internship_years = _parse_internship_years(sections)
+
+        candidate_profile = {
+            "name": personal["name"],
+            "skills": skills,
+            "experience_years": experience_years,
+            "internship_years": internship_years,
+        }
+
+        result_dict = {
+            "filename": path.name,
+            "clean_text": clean_text,
+            "resume_lines": [line.strip() for line in clean_text.splitlines() if line.strip()],
+            "sections": sections,
+            "personal": personal,
+            "contact": personal,
+            "candidate_profile": candidate_profile,
+            "parse_method": parse_method,
+        }
+
+        validation = validate_candidate(result_dict)
+        result_dict["validation"] = validation
+        return result_dict
 
     # ── PRIMARY: layout-aware parse ─────────────────────────────────────────
     try:
-        layout_doc = extract_layout(str(path))
+        doc = extract_layout(str(path))
+        result = _build_result("layout", doc)
+        if result["validation"]["extraction_status"] == "failed":
+            print(f"  [WARN] Layout parse quality FAILED (warnings: {result['validation']['warnings']}), falling back to linear parse")
+            result = _build_result("linear")
     except Exception as e:
-        layout_error = str(e)
-        layout_doc = None
-
-    if layout_doc is not None:
-        sections = layout_doc.sections
-        personal = layout_doc.personal
-        clean_text = get_full_text(layout_doc)
-        links = layout_doc.links
-        parse_method = "layout"
-    else:
-        # ── FALLBACK: legacy linear parse ───────────────────────────────────
-        print(f"  [WARN] Layout parse failed ({layout_error}), falling back to linear parse")
-        extracted = extract_pdf(str(path))
-        raw_text: str = extracted.get("text", "")
-        links: list[str] = extracted.get("links", [])
-        clean_text = normalize_text(raw_text)
-
-        parser = SectionParser()
-        sections = parser.segment(clean_text)
-
-        personal = {
-            "name": extract_name(clean_text) or "Unknown Candidate",
-            "name_confidence": 0.5,  # unknown confidence for fallback
-            "email": extract_email(clean_text),
-            "phone": extract_phone(clean_text),
-            "github": extract_github(links, clean_text),
-            "linkedin": extract_linkedin(links, clean_text),
-        }
-        parse_method = "linear_fallback"
-
-    # ── Normalize text if coming from layout ────────────────────────────────
-    if parse_method == "layout":
-        clean_text = normalize_text(clean_text)
-
-    # ── Skills ──────────────────────────────────────────────────────────────
-    skills = _parse_candidate_skills(sections, clean_text)
-
-    # ── Experience ──────────────────────────────────────────────────────────
-    # IMPORTANT: only scan experience section (NOT education, NOT full text)
-    experience_years = _parse_experience_years(sections)
-    internship_years = _parse_internship_years(sections)
-
-    candidate_profile = {
-        "name": personal["name"],
-        "skills": skills,
-        "experience_years": experience_years,
-        "internship_years": internship_years,
-    }
-
-    result = {
-        "filename": path.name,
-        "clean_text": clean_text,
-        "resume_lines": [line.strip() for line in clean_text.splitlines() if line.strip()],
-        "sections": sections,
-        "personal": personal,
-        "contact": personal,
-        "candidate_profile": candidate_profile,
-        "parse_method": parse_method,
-    }
-
-    # ── Validation ──────────────────────────────────────────────────────────
-    validation = validate_candidate(result)
-    result["validation"] = validation
+        print(f"  [WARN] Layout parse failed ({e}), falling back to linear parse")
+        result = _build_result("linear")
 
     return result
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Gemini insights
+# Gemini insights — see engine/gemini_insights.py
 # ══════════════════════════════════════════════════════════════════════════════
-
-def _gemini_insights(candidate: dict, job_profile: dict, score_result: dict) -> str:
-    try:
-        import google.generativeai as genai
-
-        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        if not api_key:
-            return "AI Insights: unavailable (GEMINI_API_KEY not set)"
-
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
-
-        matched_req = [r["skill"] for r in score_result["required_results"] if r["status"] == "MATCH"]
-        missing_req = [r["skill"] for r in score_result["required_results"] if r["status"] == "MISSING"]
-        matched_pref = [r["skill"] for r in score_result["preferred_results"] if r["status"] == "MATCH"]
-        missing_pref = [r["skill"] for r in score_result["preferred_results"] if r["status"] == "MISSING"]
-
-        prompt = f"""You are an ATS assistant generating a brief candidate screening summary.
-Do NOT recalculate scores. Do NOT invent skills or experience. Only use the data provided below.
-
-Candidate: {candidate['name']}
-Skills: {', '.join(candidate['skills']) or 'None listed'}
-Experience: {candidate['experience_years']} years
-
-Job: {', '.join(job_profile['required_skills'])} (required), {', '.join(job_profile['preferred_skills'])} (preferred)
-Min experience: {job_profile['minimum_experience_years']} years
-
-Overall Score (calculated by Python): {score_result['overall_score']}%
-Required Skill Fit: {score_result['required_skill_fit']}%
-Preferred Skill Fit: {score_result['preferred_skill_fit']}%
-Experience Fit: {score_result['experience_fit']}%
-
-Matched Required Skills: {', '.join(matched_req) or 'None'}
-Missing Required Skills: {', '.join(missing_req) or 'None'}
-Matched Preferred Skills: {', '.join(matched_pref) or 'None'}
-Missing Preferred Skills: {', '.join(missing_pref) or 'None'}
-
-Provide ONLY:
-Strengths:
-- (2-3 bullet points about what the candidate does well)
-
-Skill Gaps:
-- (missing required/preferred skills, if any)
-
-Summary:
-(1-2 sentence overall screening summary)
-"""
-        response = model.generate_content(prompt)
-        return response.text.strip()
-
-    except Exception as e:
-        return f"AI Insights: unavailable ({type(e).__name__}: {e})"
+# generate_recruiter_insights() is imported from engine.gemini_insights above.
+# It is called AFTER scoring is complete and returns a structured dict.
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -514,7 +471,6 @@ def _print_result(
     job_profile: dict,
     semantic_sim: float,
     score_result: dict,
-    insights: str,
     validation: dict,
     parse_method: str,
 ):
@@ -623,12 +579,9 @@ def _print_result(
         print(f"  Score may not reflect true candidate profile. Manual review recommended.")
         print()
 
-    # ── AI Insights ───────────────────────────────────────────────────────
-    _hr()
-    print("  AI INSIGHTS")
-    _hr()
-    for line in insights.splitlines():
-        print(f"  {line}")
+    # ── AI Insights ───────────────────────────────────────────────────────────
+    # Gemini insights have been moved to an ON-DEMAND backend API.
+    # Normal batch screening does not generate or display insights automatically.
     print()
     print("=" * W)
 
@@ -643,6 +596,28 @@ def _print_wrapped(text: str, indent: int = 2, width: int = 65):
         line += word + ", "
     if line:
         print(" " * indent + line.rstrip(", "))
+
+
+def _print_insight_section(label: str, text):
+    """Print a single-paragraph insight field."""
+    print(f"  {label}:")
+    if text:
+        for line in text.splitlines():
+            print(f"    {line}")
+    else:
+        print("    (not available)")
+    print()
+
+
+def _print_insight_list(label: str, items: list):
+    """Print a bullet-list insight field."""
+    print(f"  {label}:")
+    if items:
+        for item in items:
+            print(f"    - {item}")
+    else:
+        print("    - (none identified)")
+    print()
 
 
 def _print_ranking(ranking: list[dict]):
@@ -748,8 +723,8 @@ def main():
             use_semantic=semantic_available,
         )
 
-        # Gemini insights
-        insights = _gemini_insights(candidate, job_profile, score_result)
+        # Gemini insights generation removed from batch processing
+        # per the ON-DEMAND architecture update.
 
         # Print result
         _print_result(
@@ -759,7 +734,6 @@ def main():
             job_profile=job_profile,
             semantic_sim=semantic_sim,
             score_result=score_result,
-            insights=insights,
             validation=validation,
             parse_method=parse_method,
         )

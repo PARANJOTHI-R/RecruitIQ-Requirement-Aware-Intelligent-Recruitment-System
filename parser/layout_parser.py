@@ -726,6 +726,34 @@ _LINKEDIN_TEXT_RE = re.compile(
 )
 
 
+def _guess_name_from_text(full_text: str) -> tuple:
+    """
+    Heuristic: scan the first several non-empty lines for a name-like line.
+    Accepts 2-6 word lines where most tokens look like name parts
+    (allow single-letter initials, hyphens, periods). Returns (name, conf).
+    Called as a fallback inside _extract_personal when layout-based name
+    detection finds nothing.
+    """
+    if not full_text:
+        return "", 0.0
+
+    for line in full_text.splitlines()[:12]:
+        line = line.strip()
+        if not line:
+            continue
+        # Skip obvious contact lines
+        low = line.lower()
+        if "@" in line or "github" in low or "linkedin" in low or ".com" in low or "+" in line:
+            continue
+        parts = [w for w in line.split() if w]
+        if not (2 <= len(parts) <= 6):
+            continue
+        name_like = [w for w in parts if re.match(r"^[A-Za-z][A-Za-z\.\-']*$", w)]
+        if len(name_like) >= max(1, len(parts) - 1):
+            return line, 0.55
+    return "", 0.0
+
+
 def _extract_personal(
     header_blocks: list[Block],
     links: list[str],
@@ -762,31 +790,6 @@ def _extract_personal(
         "linkedin": linkedin,
     }
 
-
-    def _guess_name_from_text(full_text: str) -> tuple:
-        """
-        Heuristic: scan the first several non-empty lines for a name-like line.
-        Accepts 2-6 word lines where most tokens look like name parts
-        (allow single-letter initials, hyphens, periods). Returns (name, conf).
-        """
-        if not full_text:
-            return "", 0.0
-
-        for line in full_text.splitlines()[:12]:
-            line = line.strip()
-            if not line:
-                continue
-            # Skip obvious contact lines
-            low = line.lower()
-            if "@" in line or "github" in low or "linkedin" in low or ".com" in low or "+" in line:
-                continue
-            parts = [w for w in line.split() if w]
-            if not (2 <= len(parts) <= 6):
-                continue
-            name_like = [w for w in parts if re.match(r"^[A-Za-z][A-Za-z\.\-']*$", w)]
-            if len(name_like) >= max(1, len(parts) - 1):
-                return line, 0.55
-        return "", 0.0
 
 
 def _detect_name(header_blocks: list[Block], sections: dict) -> tuple:

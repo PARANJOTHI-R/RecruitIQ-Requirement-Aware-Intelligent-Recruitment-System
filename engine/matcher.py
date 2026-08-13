@@ -40,6 +40,10 @@ def _is_false_positive(skill_a: str, skill_b: str) -> bool:
         ("node", "java"),
         ("java", "node"),
         ("node.js", "java"),
+        ("node", "javascript"),
+        ("javascript", "node"),
+        ("node.js", "javascript"),
+        ("javascript", "node.js"),
     ]
     a = skill_a.strip().lower()
     b = skill_b.strip().lower()

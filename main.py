@@ -246,6 +246,7 @@ def process_resume(pdf_path: str) -> dict:
         "resume_lines": [line.strip() for line in clean_text.splitlines() if line.strip()],
         "sections": sections,
         "personal": personal,
+        "contact": personal,
         "candidate_profile": {
             "name": personal["name"],
             "skills": skills,
@@ -253,10 +254,6 @@ def process_resume(pdf_path: str) -> dict:
         },
     }
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Gemini insights
-# ══════════════════════════════════════════════════════════════════════════════
 
 def _gemini_insights(candidate: dict, job_profile: dict, score_result: dict) -> str:
     """

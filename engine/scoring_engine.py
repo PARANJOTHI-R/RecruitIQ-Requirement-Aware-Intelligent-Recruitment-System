@@ -46,44 +46,57 @@ def score_candidate(
         use_semantic=use_semantic,
     )
 
-    # ── Skill fit scores ─────────────────────────────────────────────────────
+    def _skill_score(results: list[dict]) -> float:
+        return sum(
+            1.0 if r["status"] == "MATCH" else (0.75 if r["status"] == "RELATED" else 0.0)
+            for r in results
+        )
+
     req_total = len(required_results)
-    req_matched = sum(1 for r in required_results if r["status"] == "MATCH")
     pref_total = len(preferred_results)
-    pref_matched = sum(1 for r in preferred_results if r["status"] == "MATCH")
+    required_score = _skill_score(required_results)
+    preferred_score = _skill_score(preferred_results)
 
-    required_fit = round((req_matched / req_total * 100), 1) if req_total else 100.0
-    preferred_fit = round((pref_matched / pref_total * 100), 1) if pref_total else 100.0
+    required_fit = round((required_score / req_total * 100), 1) if req_total else 100.0
+    preferred_fit = round((preferred_score / pref_total * 100), 1) if pref_total else 100.0
 
-    # ── Experience fit ───────────────────────────────────────────────────────
-    min_years = job_profile.get("minimum_experience_years", 0)
-    candidate_years = candidate.get("experience_years")  # may be None
+    min_years = job_profile.get("minimum_experience_years")
+    if min_years is None:
+        min_years = job_profile.get("experience", {}).get("minimum_years", 0)
 
+    candidate_years = candidate.get("experience_years")
     if candidate_years is None:
-        experience_fit = None          # unknown — do NOT fake as 0
+        experience_fit = None
     elif min_years == 0:
         experience_fit = 100.0
     else:
         experience_fit = min(100.0, round((candidate_years / min_years) * 100, 1))
 
-    # ── Overall score ────────────────────────────────────────────────────────
-    # If experience is unknown we exclude it and re-weight 50/20 → 50/20/(70 total)
     if experience_fit is None:
-        # Weight just required + preferred, normalise to 100
-        overall_score = round(
-            (required_fit * 0.5 + preferred_fit * 0.2) / 0.7, 1
-        )
+        overall_score = round((required_fit * 0.5 + preferred_fit * 0.2) / 0.7, 1)
     else:
-        overall_score = round(
-            required_fit * 0.5 + preferred_fit * 0.2 + experience_fit * 0.3, 1
-        )
+        overall_score = round(required_fit * 0.5 + preferred_fit * 0.2 + experience_fit * 0.3, 1)
+
+    matched_required = [r for r in required_results if r["status"] in ("MATCH", "RELATED")]
+    missing_required = [r["skill"] for r in required_results if r["status"] == "MISSING"]
+    matched_preferred = [r for r in preferred_results if r["status"] in ("MATCH", "RELATED")]
+    missing_preferred = [r["skill"] for r in preferred_results if r["status"] == "MISSING"]
 
     return {
-        "candidate": candidate.get("name", "Unknown"),
+        "candidate": candidate.get("name", "Unknown Candidate"),
         "overall_score": overall_score,
         "required_skill_fit": required_fit,
         "preferred_skill_fit": preferred_fit,
-        "experience_fit": experience_fit,       # None if unknown
-        "required_results": required_results,   # full evidence objects
+        "experience_fit": experience_fit,
+        "candidate_experience": candidate_years,
+        "required_experience": min_years,
+        "matched_required": matched_required,
+        "missing_required": missing_required,
+        "matched_preferred": matched_preferred,
+        "missing_preferred": missing_preferred,
+        "all_required_results": required_results,
+        "all_preferred_results": preferred_results,
+        "required_results": required_results,
         "preferred_results": preferred_results,
     }
+

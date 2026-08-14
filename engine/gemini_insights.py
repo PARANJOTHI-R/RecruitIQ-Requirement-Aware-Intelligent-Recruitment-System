@@ -47,9 +47,7 @@ from typing import Any
 # ── Constants ──────────────────────────────────────────────────────────────────
 
 # Default model — override via GEMINI_MODEL in .env
-# gemini-flash-latest is the stable alias for the current flash release.
-# This can be overridden in .env: GEMINI_MODEL=gemini-flash-latest
-_DEFAULT_MODEL = "gemini-flash-latest"
+_DEFAULT_MODEL = "gemini-3.5-flash"
 
 # JSON schema for the structured response Gemini must produce.
 # Using the SDK's native schema enforcement so we don't embed JSON templates
@@ -306,43 +304,68 @@ def generate_recruiter_insights(
         from google.genai import types
 
         prompt = _build_prompt(candidate, job_profile, score_result)
-        model_name = _get_model_name()
+        
+        fallback_models = os.environ.get("GEMINI_FALLBACK_MODELS", _DEFAULT_MODEL)
+        models_to_try = [m.strip() for m in fallback_models.split(",") if m.strip()]
+        if not models_to_try:
+            models_to_try = [_DEFAULT_MODEL]
 
-        # Retry with exponential backoff for rate-limit (HTTP 429) errors.
-        # Other errors (4xx auth, 5xx server) fail immediately.
         import time
 
-        max_attempts = 3
-        delay = 2.0  # seconds; doubles each retry
-
+        max_attempts_per_model = 3
+        delay = 2.0
+        
         last_exc = None
-        for attempt in range(max_attempts):
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        response_schema=_INSIGHT_SCHEMA,
-                    ),
-                )
-                break  # success
-            except Exception as exc:
-                last_exc = exc
-                # Use SDK's .code attribute (confirmed int, e.g. 429, 400, 500)
-                err_code = getattr(exc, "code", None)
-                exc_str = str(exc)
-                is_rate_limit = (
-                    err_code == 429
-                    or "429" in exc_str
-                    or "quota" in exc_str.lower()
-                    or "resource_exhausted" in exc_str.lower()
-                )
-                if is_rate_limit and attempt < max_attempts - 1:
-                    time.sleep(delay)
-                    delay *= 2
-                    continue
-                raise  # non-retriable — let outer handler catch
+        response = None
+        
+        for model_name in models_to_try:
+            success = False
+            for attempt in range(max_attempts_per_model):
+                try:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            response_schema=_INSIGHT_SCHEMA,
+                        ),
+                    )
+                    success = True
+                    break  # success
+                except Exception as exc:
+                    last_exc = exc
+                    err_code = getattr(exc, "code", None)
+                    exc_str = str(exc)
+                    is_rate_limit = (
+                        err_code == 429
+                        or "429" in exc_str
+                        or "quota" in exc_str.lower()
+                        or "resource_exhausted" in exc_str.lower()
+                    )
+                    is_server_error = (
+                        err_code in [500, 502, 503, 504]
+                        or "503" in exc_str
+                        or "500" in exc_str
+                        or "service unavailable" in exc_str.lower()
+                    )
+                    
+                    if is_rate_limit and attempt < max_attempts_per_model - 1:
+                        time.sleep(delay)
+                        delay *= 2
+                        continue
+                    
+                    # For server errors or if we exhaust rate limit retries, break out of attempt loop to try next model
+                    if is_server_error or is_rate_limit:
+                        break
+                    
+                    # Non-retriable auth error, etc.
+                    raise
+            
+            if success:
+                break
+        else:
+            # If we fall through the models loop without success
+            raise last_exc or Exception("All fallback models failed.")
 
         raw_text = response.text or ""
         if not raw_text.strip():
@@ -362,12 +385,9 @@ def generate_recruiter_insights(
     except json.JSONDecodeError:
         return {**_UNAVAILABLE, "reason": "Gemini returned unparseable JSON"}
     except Exception as exc:
-        # Include error code (e.g. 429, 400, 500) but NOT the exception message
-        # (which may contain API details). Never expose the key.
-        exc_type = type(exc).__name__
-        err_code = getattr(exc, "code", None)
-        code_str = f" [{err_code}]" if err_code else ""
-        return {**_UNAVAILABLE, "reason": f"Gemini request failed ({exc_type}{code_str})"}
+        import traceback
+        traceback.print_exc()
+        return {**_UNAVAILABLE, "reason": f"AI insights are currently unavailable due to a service error: {str(exc)}"}
 
 
 def answer_followup_question(
@@ -391,15 +411,64 @@ def answer_followup_question(
         from google.genai import types
 
         contents = _build_followup_prompt(candidate, job_profile, score_result, conversation, question)
-        model_name = _get_model_name()
+        
+        fallback_models = os.environ.get("GEMINI_FALLBACK_MODELS", _DEFAULT_MODEL)
+        models_to_try = [m.strip() for m in fallback_models.split(",") if m.strip()]
+        if not models_to_try:
+            models_to_try = [_DEFAULT_MODEL]
 
-        response = client.models.generate_content(
-            model=model_name,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                response_mime_type="text/plain",
-            ),
-        )
+        import time
+
+        max_attempts_per_model = 3
+        delay = 2.0
+        
+        last_exc = None
+        response = None
+        
+        for model_name in models_to_try:
+            success = False
+            for attempt in range(max_attempts_per_model):
+                try:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=contents,
+                        config=types.GenerateContentConfig(
+                            response_mime_type="text/plain",
+                        ),
+                    )
+                    success = True
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    err_code = getattr(exc, "code", None)
+                    exc_str = str(exc)
+                    is_rate_limit = (
+                        err_code == 429
+                        or "429" in exc_str
+                        or "quota" in exc_str.lower()
+                        or "resource_exhausted" in exc_str.lower()
+                    )
+                    is_server_error = (
+                        err_code in [500, 502, 503, 504]
+                        or "503" in exc_str
+                        or "500" in exc_str
+                        or "service unavailable" in exc_str.lower()
+                    )
+                    
+                    if is_rate_limit and attempt < max_attempts_per_model - 1:
+                        time.sleep(delay)
+                        delay *= 2
+                        continue
+                        
+                    if is_server_error or is_rate_limit:
+                        break
+                        
+                    raise
+                    
+            if success:
+                break
+        else:
+            raise last_exc or Exception("All fallback models failed.")
 
         raw_text = response.text or ""
         if not raw_text.strip():
@@ -408,7 +477,4 @@ def answer_followup_question(
         return {"status": "ok", "answer": raw_text.strip()}
 
     except Exception as exc:
-        exc_type = type(exc).__name__
-        err_code = getattr(exc, "code", None)
-        code_str = f" [{err_code}]" if err_code else ""
-        return {"status": "unavailable", "answer": f"Gemini request failed ({exc_type}{code_str})"}
+        return {"status": "unavailable", "answer": "AI insights are currently unavailable due to a service error."}

@@ -680,10 +680,12 @@ def main():
 
     # ── Process each resume ───────────────────────────────────────────────
     ranking: list[dict] = []
+    
+    import time
 
     for idx, pdf_path in enumerate(pdfs, 1):
         print(f"Processing {idx}/{len(pdfs)}: {pdf_path.name}")
-
+        t0 = time.time()
         try:
             parsed = process_resume(str(pdf_path))
         except Exception as e:
@@ -722,6 +724,9 @@ def main():
             resume_lines=resume_lines,
             use_semantic=semantic_available,
         )
+        
+        t1 = time.time()
+        print(f"  -> Processing time: {t1 - t0:.2f}s")
 
         # Gemini insights generation removed from batch processing
         # per the ON-DEMAND architecture update.

@@ -83,6 +83,14 @@ def match_skills(
 
     cand_raw_lower = {c.strip().lower() for c in candidate_skills}
 
+    if use_semantic:
+        try:
+            from engine.semantic_matcher import preload_embeddings
+            # Pre-embed JD skills and candidate skills to avoid individual model encode calls
+            preload_embeddings(jd_skills + candidate_skills)
+        except Exception:
+            pass
+
     results = []
 
     for jd_skill in jd_skills:

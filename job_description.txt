@@ -1,23 +1,21 @@
-Backend Software Engineer
+Senior Java Backend Engineer
 
-We are looking for a Backend Software Engineer with at least 1 year of experience building scalable backend services and web applications.
+Looking for an enterprise Java engineer with 3+ years experience designing resilient microservices and distributed databases.
 
 Required Skills:
-
-Python
-FastAPI
+Java
+Spring Boot
 REST APIs
-PostgreSQL
+SQL
 Git
 
 Preferred Skills:
-
-Docker
-AWS
-Redis
-MongoDB
 Microservices
-CI/CD
-Linux
+Docker
+Kafka
+AWS
+MongoDB
+Oracle SQL
+Maven
 
-The candidate should have experience developing backend applications, designing and consuming REST APIs, working with relational databases, and using Git for version control. Experience with cloud deployment, caching, containerization, and microservices architecture is preferred.
+Key duties include building high-throughput APIs, database optimization, and cloud architecture.x

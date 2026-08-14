@@ -1,7 +1,10 @@
 import os
 import tempfile
 import uuid
+from dotenv import load_dotenv
+load_dotenv()
 from flask import Flask, render_template, request, flash, redirect, url_for, jsonify
+from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
 # Import existing engine and parser modules
@@ -11,12 +14,20 @@ from engine.gemini_insights import generate_recruiter_insights, answer_followup_
 from main import process_resume
 
 app = Flask(__name__)
+CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173"])
 app.secret_key = "recruitiq-secret-key-for-poc"
 
 DEFAULT_SAMPLE_JD = """Java Backend Developer
 Required: Java, Spring Boot, REST APIs, SQL, 2+ years experience
 Preferred: Docker, AWS, Kafka
 Education: Computer Science or related field"""
+
+# Eagerly initialize the semantic model once per process on startup
+try:
+    from engine.semantic_matcher import init_model
+    init_model()
+except Exception as e:
+    print(f"Warning: Failed to initialize semantic model eagerly: {e}")
 
 # Global in-memory cache for the POC to support on-demand insights
 # without re-parsing the PDF.
@@ -64,9 +75,15 @@ def screen_resumes():
             parsed_data = process_resume(temp_path)
             candidate_profile = parsed_data.get("candidate_profile", {})
             contact = parsed_data.get("contact", {})
+            validation = parsed_data.get("validation", {"ok": True, "extraction_status": "ok"})
+            parse_method = parsed_data.get("parse_method", "unknown")
 
             # Score candidate against job requirement profile
-            score_result = score_candidate(job_profile, candidate_profile)
+            score_result = score_candidate(
+                job_profile, 
+                candidate_profile, 
+                resume_lines=parsed_data.get("resume_lines", [])
+            )
 
             # Generate a unique ID for on-demand insight retrieval
             candidate_id = uuid.uuid4().hex
@@ -87,6 +104,8 @@ def screen_resumes():
                 "contact": contact,
                 "profile": candidate_profile,
                 "score": score_result,
+                "validation": validation,
+                "parse_method": parse_method,
             })
         except Exception as e:
             errors.append({
@@ -190,4 +209,4 @@ if __name__ == "__main__":
     print(" Starting RecruitIQ Web Application on port 5000")
     print(" Open in browser: http://127.0.0.1:5000")
     print("==================================================")
-    app.run(debug=True, host="127.0.0.1", port=5000)
+    app.run(debug=True, use_reloader=False, host="127.0.0.1", port=5000)

@@ -8,15 +8,14 @@ import {
   AlertTriangle,
   Mail,
   Phone,
-  CheckCircle,
-  Award,
-  FileCheck,
+  Clock,
+  Clock3
 } from 'lucide-react';
 import { LinkedInIcon, GitHubIcon } from './Icons';
 import { formatScore } from '../utils';
 
 export default function LeaderboardTable({
-  candidates = [],
+  submissions = [],
   onSelectCandidate,
   onOpenInsights,
   jobTitle = 'Target Role',
@@ -25,25 +24,32 @@ export default function LeaderboardTable({
   const [minScore, setMinScore] = useState(0);
   const [onlyReviewWarnings, setOnlyReviewWarnings] = useState(false);
 
-  const filteredCandidates = candidates.filter((cand) => {
-    const matchesSearch =
-      cand.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      cand.profile?.skills?.some((s) => s.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      cand.filename.toLowerCase().includes(searchTerm.toLowerCase());
+  const screenedSubmissions = submissions.filter(s => s.screening?.status === 'screened');
+  const unscreenedSubmissions = submissions.filter(s => s.screening?.status !== 'screened');
 
-    const matchesScore = (cand.score?.overall_score || 0) >= minScore;
+  const filteredScreened = screenedSubmissions.filter((sub) => {
+    const nameMatch = sub.candidate?.name?.toLowerCase().includes(searchTerm.toLowerCase());
+    const fileMatch = sub.original_filename?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = nameMatch || fileMatch;
+
+    const matchesScore = (sub.screening.analysis?.overall_score || 0) >= minScore;
 
     const matchesWarning = onlyReviewWarnings
-      ? !cand.validation?.ok || cand.validation?.extraction_status !== 'ok'
+      ? sub.parser?.status !== 'ok'
       : true;
 
     return matchesSearch && matchesScore && matchesWarning;
   });
 
-  const exportCSV = () => {
-    if (!candidates.length) return;
+  // Rank screened candidates
+  const rankedScreened = [...filteredScreened].sort((a, b) => 
+     (b.screening.analysis?.overall_score || 0) - (a.screening.analysis?.overall_score || 0)
+  );
 
+  const exportCSV = () => {
+    if (!submissions.length) return;
     const headers = [
+      'Status',
       'Rank',
       'Candidate Name',
       'Overall Score (%)',
@@ -58,20 +64,25 @@ export default function LeaderboardTable({
       'Filename',
     ];
 
-    const rows = candidates.map((c) => [
-      c.rank,
-      `"${c.name}"`,
-      c.score?.overall_score !== undefined ? formatScore(c.score.overall_score) : '0.0',
-      c.score?.required_skill_fit !== undefined ? formatScore(c.score.required_skill_fit) : '0.0',
-      c.score?.preferred_skill_fit !== undefined ? formatScore(c.score.preferred_skill_fit) : '0.0',
-      c.score?.experience_fit !== undefined && c.score?.experience_fit !== null ? formatScore(c.score.experience_fit) : 'N/A',
-      c.profile?.experience_years ?? 'Unknown',
-      c.parse_method,
-      c.validation?.extraction_status,
-      c.contact?.email || '',
-      c.contact?.phone || '',
-      `"${c.filename}"`,
-    ]);
+    const rows = submissions.map((sub, idx) => {
+      const isScreened = sub.screening?.status === 'screened';
+      const sa = sub.screening?.analysis || {};
+      return [
+        isScreened ? 'Screened' : 'Not Screened',
+        isScreened ? idx + 1 : 'N/A', // approximate rank
+        `"${sub.candidate?.name || ''}"`,
+        isScreened ? formatScore(sa.overall_score || 0) : 'N/A',
+        isScreened ? formatScore(sa.required_skill_score || 0) : 'N/A',
+        isScreened ? formatScore(sa.preferred_skill_score || 0) : 'N/A',
+        isScreened ? formatScore(sa.experience_score || 0) : 'N/A',
+        sa.experience_years !== undefined ? sa.experience_years : 'Unknown',
+        sub.parser?.method || 'unknown',
+        sub.parser?.status || 'unknown',
+        sub.candidate?.email || '',
+        sub.candidate?.phone || '',
+        `"${sub.original_filename || ''}"`,
+      ];
+    });
 
     const csvContent =
       'data:text/csv;charset=utf-8,' +
@@ -100,6 +111,36 @@ export default function LeaderboardTable({
     return <span className="rank-badge rank-other">#{rank}</span>;
   };
 
+  const renderCandidateInfo = (sub) => (
+    <div>
+      <div style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.95rem' }}>
+        {sub.candidate?.name || "Unknown Candidate"}
+      </div>
+      <div
+        style={{
+          fontSize: '0.78rem',
+          color: 'var(--text-subtle)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          marginTop: '4px',
+        }}
+      >
+        <span>{sub.original_filename}</span>
+        {sub.candidate?.email && (
+          <a href={`mailto:${sub.candidate.email}`} title={sub.candidate.email} style={{ color: 'var(--text-muted)' }}>
+            <Mail size={13} />
+          </a>
+        )}
+        {sub.candidate?.phone && (
+          <a href={`tel:${sub.candidate.phone}`} title={sub.candidate.phone} style={{ color: 'var(--text-muted)' }}>
+            <Phone size={13} />
+          </a>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div className="table-container">
       {/* Table Controls & Filter Bar */}
@@ -120,7 +161,7 @@ export default function LeaderboardTable({
             Candidate Screening Leaderboard
           </h2>
           <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-            Showing {filteredCandidates.length} of {candidates.length} ranked profiles
+            Showing {rankedScreened.length} screened profiles
           </p>
         </div>
 
@@ -139,7 +180,7 @@ export default function LeaderboardTable({
             />
             <input
               type="text"
-              placeholder="Search candidate or skill..."
+              placeholder="Search candidate..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               style={{
@@ -175,7 +216,7 @@ export default function LeaderboardTable({
         </div>
       </div>
 
-      {/* Table */}
+      {/* Screened Table */}
       <div style={{ overflowX: 'auto' }}>
         <table className="custom-table">
           <thead>
@@ -191,143 +232,64 @@ export default function LeaderboardTable({
             </tr>
           </thead>
           <tbody>
-            {filteredCandidates.map((cand) => {
-              const isFailedParse = cand.validation?.extraction_status === 'failed';
-              const overallScore = cand.score?.overall_score || 0;
-              const reqFit = cand.score?.required_skill_fit || 0;
-              const prefFit = cand.score?.preferred_skill_fit || 0;
-              const expYears = cand.profile?.experience_years;
+            {rankedScreened.map((sub, idx) => {
+              const rank = idx + 1;
+              const isFailedParse = sub.parser?.status === 'failed';
+              const sa = sub.screening.analysis || {};
+              const overallScore = sa.overall_score || 0;
+              const reqFit = sa.required_skill_score || 0;
+              const prefFit = sa.preferred_skill_score || 0;
+              const expYears = sa.experience_years;
 
               return (
-                <tr key={cand.id}>
-                  <td>{getRankBadge(cand.rank)}</td>
-
-                  <td>
-                    <div>
-                      <div style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.95rem' }}>
-                        {cand.name}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: '0.78rem',
-                          color: 'var(--text-subtle)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          marginTop: '4px',
-                        }}
-                      >
-                        <span>{cand.filename}</span>
-                        {cand.contact?.email && (
-                          <a
-                            href={`mailto:${cand.contact.email}`}
-                            title={cand.contact.email}
-                            style={{ color: 'var(--text-muted)' }}
-                          >
-                            <Mail size={13} />
-                          </a>
-                        )}
-                        {cand.contact?.phone && (
-                          <a
-                            href={`tel:${cand.contact.phone}`}
-                            title={cand.contact.phone}
-                            style={{ color: 'var(--text-muted)' }}
-                          >
-                            <Phone size={13} />
-                          </a>
-                        )}
-                        {cand.contact?.linkedin && (
-                          <a
-                            href={cand.contact.linkedin}
-                            target="_blank"
-                            rel="noreferrer"
-                            title="LinkedIn"
-                            style={{ color: '#0077b5', display: 'inline-flex', alignItems: 'center' }}
-                          >
-                            <LinkedInIcon size={13} />
-                          </a>
-                        )}
-                        {cand.contact?.github && (
-                          <a
-                            href={cand.contact.github}
-                            target="_blank"
-                            rel="noreferrer"
-                            title="GitHub"
-                            style={{ color: '#24292e', display: 'inline-flex', alignItems: 'center' }}
-                          >
-                            <GitHubIcon size={13} />
-                          </a>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-
+                <tr key={sub.submission_id}>
+                  <td>{getRankBadge(rank)}</td>
+                  <td>{renderCandidateInfo(sub)}</td>
                   <td>
                     <span className={`score-pill ${getScoreClass(overallScore)}`}>
                       {formatScore(overallScore)}%
                     </span>
                   </td>
-
                   <td>
                     <div style={{ fontWeight: 700, color: reqFit >= 60 ? 'var(--emerald-text)' : 'var(--text-main)' }}>
                       {formatScore(reqFit)}%
                     </div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)' }}>
-                      {cand.score?.matched_required?.length || 0} matched
-                    </div>
                   </td>
-
                   <td>
                     <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>
                       {formatScore(prefFit)}%
                     </div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)' }}>
-                      {cand.score?.matched_preferred?.length || 0} matched
-                    </div>
                   </td>
-
                   <td>
                     <div style={{ fontWeight: 600 }}>
                       {expYears !== null && expYears !== undefined ? `${expYears} yrs` : 'Unknown'}
                     </div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)' }}>
-                      {cand.score?.experience_fit !== null && cand.score?.experience_fit !== undefined
-                        ? `${formatScore(cand.score.experience_fit)}% fit`
-                        : 'N/A'}
-                    </div>
                   </td>
-
                   <td>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                       <span className="chip chip-slate" style={{ fontSize: '0.72rem', alignSelf: 'flex-start' }}>
-                        {cand.parse_method}
+                        {sub.parser?.method || 'unknown'}
                       </span>
                       {isFailedParse && (
-                        <span
-                          className="chip chip-amber"
-                          style={{ fontSize: '0.72rem', alignSelf: 'flex-start' }}
-                          title={cand.validation?.warnings?.join(', ')}
-                        >
+                        <span className="chip chip-amber" style={{ fontSize: '0.72rem', alignSelf: 'flex-start' }}>
                           <AlertTriangle size={12} />
                           <span>[!REVIEW]</span>
                         </span>
                       )}
                     </div>
                   </td>
-
                   <td style={{ textAlign: 'right' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px' }}>
                       <button
-                        onClick={() => onSelectCandidate(cand)}
+                        onClick={() => onSelectCandidate(sub)}
                         className="btn btn-secondary btn-sm"
                         title="View complete match evidence and terminal breakdown"
                       >
                         <Eye size={14} />
                         <span>Inspect Match</span>
                       </button>
-
                       <button
-                        onClick={() => onOpenInsights(cand)}
+                        onClick={() => onOpenInsights && onOpenInsights(sub)}
                         className="btn btn-accent btn-sm"
                         title="Generate Gemini AI recruiter insights & chat"
                       >
@@ -340,16 +302,60 @@ export default function LeaderboardTable({
               );
             })}
 
-            {filteredCandidates.length === 0 && (
+            {rankedScreened.length === 0 && (
               <tr>
                 <td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                  No candidates match your current filter criteria.
+                  No screened candidates match your current filter criteria.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
+      
+      {/* Not Screened Section */}
+      {unscreenedSubmissions.length > 0 && (
+        <div style={{ padding: '24px', background: 'var(--bg-subtle)' }}>
+           <h3 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-main)' }}>
+              <Clock3 size={18} />
+              Awaiting Screening ({unscreenedSubmissions.length})
+           </h3>
+           <table className="custom-table" style={{ background: '#fff', boxShadow: 'none', border: '1px solid var(--border-subtle)' }}>
+              <thead>
+                <tr>
+                   <th>Candidate</th>
+                   <th>Submitted</th>
+                   <th>Parser Status</th>
+                   <th style={{ textAlign: 'right' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                 {unscreenedSubmissions.map(sub => (
+                    <tr key={sub.submission_id}>
+                       <td>{renderCandidateInfo(sub)}</td>
+                       <td style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                          {new Date(sub.submitted_at).toLocaleDateString()}
+                       </td>
+                       <td>
+                          <span className={`chip ${sub.parser?.status === 'ok' ? 'chip-emerald' : sub.parser?.status === 'failed' ? 'chip-rose' : 'chip-amber'}`}>
+                             {sub.parser?.status || 'pending'}
+                          </span>
+                       </td>
+                       <td style={{ textAlign: 'right' }}>
+                          <button
+                            onClick={() => onSelectCandidate(sub)}
+                            className="btn btn-secondary btn-sm"
+                          >
+                            <Eye size={14} />
+                            <span>View Profile</span>
+                          </button>
+                       </td>
+                    </tr>
+                 ))}
+              </tbody>
+           </table>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X,
   Sparkles,
@@ -20,12 +21,17 @@ import { LinkedInIcon, GitHubIcon } from './Icons';
 import { formatScore } from '../utils';
 
 export default function CandidateDrawer({
-  candidate,
+  candidate: submission,
   jobProfile,
   onClose,
   initialTab = 'breakdown', // 'breakdown' | 'insights'
 }) {
-  if (!candidate) return null;
+  const submissionId = submission?.submission_id;
+  const isScreened = submission?.screening?.status === 'screened';
+  const sa = submission?.screening?.analysis || {};
+  const matches = submission?.screening?.skill_matches || [];
+  const contact = submission?.candidate || {};
+  const analysisId = sa?.analysis_id;
 
   const [activeTab, setActiveTab] = useState(initialTab);
   const [insightsData, setInsightsData] = useState(null);
@@ -39,9 +45,8 @@ export default function CandidateDrawer({
 
   // Evidence Expanded State
   const [expandedSkills, setExpandedSkills] = useState({});
-  const toggleSkill = (type, idx) => {
-    const key = `${type}-${idx}`;
-    setExpandedSkills(prev => ({ ...prev, [key]: !prev[key] }));
+  const toggleSkill = (idx) => {
+    setExpandedSkills(prev => ({ ...prev, [idx]: !prev[idx] }));
   };
 
   useEffect(() => {
@@ -49,34 +54,52 @@ export default function CandidateDrawer({
   }, [initialTab]);
 
   useEffect(() => {
-    if (activeTab === 'insights' && !insightsData && !isLoadingInsights) {
+    // Reset all candidate-specific state on candidate change (belt-and-suspenders)
+    setInsightsData(null);
+    setInsightError(null);
+    setIsLoadingInsights(false);
+    setChatMessages([]);
+    setActiveTab(initialTab);
+    setExpandedSkills({});
+  }, [submissionId, initialTab]);
+
+  useEffect(() => {
+    if (!submission || !isScreened) return;
+    if (activeTab === 'insights' && !insightsData && !isLoadingInsights && analysisId) {
       fetchInsights();
     }
-  }, [activeTab, candidate.id]);
+  }, [activeTab, submissionId, insightsData, isLoadingInsights, isScreened, analysisId]);
 
   const fetchInsights = async () => {
+    const requestedId = submissionId; // Capture at call time
     setIsLoadingInsights(true);
     setInsightError(null);
     try {
-      const res = await fetch(`/candidates/${candidate.id}/insights`, {
+      const res = await fetch(`/api/ai/insights/${analysisId}`, {
         method: 'POST',
       });
       const data = await res.json();
-      if (res.ok && data.status === 'ok') {
-        setInsightsData(data);
+      
+      // Guard: only update state if this candidate is still selected
+      if (requestedId !== submissionId) return;
+
+      if (res.ok && data.success) {
+        setInsightsData(data.insight?.insight_data || data.insight);
       } else {
-        setInsightError(data.message || 'Gemini insights are currently unavailable. Ensure GEMINI_API_KEY is configured in your .env file.');
+        setInsightError(data.message || 'Gemini insights are currently unavailable.');
       }
     } catch (err) {
+      if (requestedId !== submissionId) return;
       setInsightError('Network error while retrieving insights: ' + err.message);
     } finally {
+      if (requestedId !== submissionId) return; // Don't reset loading for stale request
       setIsLoadingInsights(false);
     }
   };
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (!chatInput.trim() || isSendingMessage) return;
+    if (!chatInput.trim() || isSendingMessage || !analysisId) return;
 
     const question = chatInput.trim();
     setChatInput('');
@@ -84,13 +107,13 @@ export default function CandidateDrawer({
     setIsSendingMessage(true);
 
     try {
-      const res = await fetch(`/candidates/${candidate.id}/insights/chat`, {
+      const res = await fetch(`/api/ai/chat/${analysisId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question, conversation: chatMessages }),
       });
       const data = await res.json();
-      if (res.ok && data.status === 'ok') {
+      if (res.ok && data.success) {
         setChatMessages((prev) => [...prev, { role: 'model', content: data.answer }]);
       } else {
         setChatMessages((prev) => [
@@ -108,33 +131,21 @@ export default function CandidateDrawer({
     }
   };
 
-  const score = candidate.score || {};
-  const validation = candidate.validation || { ok: true, warnings: [], extraction_status: 'ok' };
-  const contact = candidate.contact || {};
-  const profile = candidate.profile || {};
+  if (!submission) return null;
 
   const getMatchBadge = (item) => {
-    if (item.status === 'MATCH') {
+    if (item.matched) {
       const mt = (item.match_type || 'exact').toLowerCase();
-      if (mt === 'exact') {
-        return <span className="chip chip-emerald">[+] Exact Match</span>;
-      }
-      if (mt === 'normalized') {
-        return <span className="chip chip-sky">[+] Normalized Match</span>;
-      }
-      return (
-        <span className="chip chip-purple">
-          [+] Semantic Match {item.similarity ? `(${item.similarity.toFixed(2)})` : ''}
-        </span>
-      );
+      if (mt === 'exact') return <span className="chip chip-emerald">[+] Exact Match</span>;
+      if (mt === 'normalized') return <span className="chip chip-sky">[+] Normalized Match</span>;
+      return <span className="chip chip-purple">[+] Semantic Match {item.similarity_score ? `(${Number(item.similarity_score).toFixed(2)})` : ''}</span>;
     }
     return <span className="chip chip-rose">[-] Missing</span>;
   };
 
-  const renderSkillItem = (item, type, idx) => {
-    const key = `${type}-${idx}`;
-    const isExpanded = !!expandedSkills[key];
-    const matchType = (item.match_type || (item.status === 'MATCH' ? 'exact' : 'missing')).toLowerCase();
+  const renderSkillItem = (item, idx) => {
+    const isExpanded = !!expandedSkills[idx];
+    const isMatched = item.matched;
     
     return (
       <div
@@ -147,58 +158,53 @@ export default function CandidateDrawer({
           marginBottom: '10px',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontWeight: 700, fontSize: '0.92rem', color: 'var(--text-main)' }}>
-            {item.status === 'MATCH' ? '✓' : '✗'} {item.skill}
-          </span>
-          {getMatchBadge(item)}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '24px',
+              height: '24px',
+              borderRadius: '50%',
+              background: isMatched ? '#dcfce7' : '#ffe4e6',
+              color: isMatched ? '#16a34a' : '#e11d48'
+            }}>
+              {isMatched ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
+            </span>
+            <span style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--text-main)' }}>
+              {item.skill_name}
+            </span>
+            {getMatchBadge(item)}
+          </div>
+          {item.evidence && (
+            <button
+              onClick={() => toggleSkill(idx)}
+              className="btn btn-secondary btn-sm"
+              style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+            >
+              {isExpanded ? 'Hide Evidence' : 'Show Evidence'}
+            </button>
+          )}
         </div>
         
-        <button 
-          onClick={() => toggleSkill(type, idx)}
-          style={{
-            background: 'none',
-            border: 'none',
-            padding: '4px 0',
-            marginTop: '8px',
-            fontSize: '0.8rem',
-            color: 'var(--primary-600)',
-            fontWeight: 600,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '4px'
-          }}
-        >
-          {isExpanded ? '[▲] Hide Evidence' : '[▼] View Evidence'}
-        </button>
-
-        {isExpanded && (
+        {isExpanded && item.evidence && (
           <div style={{
-            marginTop: '8px',
+            marginTop: '12px',
             padding: '12px',
-            background: 'var(--bg-main)',
-            borderLeft: '3px solid var(--primary-400)',
+            background: 'var(--bg-subtle)',
+            borderLeft: `3px solid ${isMatched ? 'var(--emerald-border)' : 'var(--border-subtle)'}`,
             borderRadius: '0 4px 4px 0',
             fontSize: '0.85rem',
-            color: 'var(--text-main)'
+            color: 'var(--text-main)',
+            fontFamily: 'var(--font-mono)'
           }}>
-            <div style={{ marginBottom: '10px' }}>
-              <span style={{ fontWeight: 600, color: 'var(--text-subtle)' }}>Resume evidence:</span>
-              <div style={{ marginTop: '4px', fontStyle: 'italic', paddingLeft: '8px', lineHeight: '1.4' }}>
-                {item.status === 'MATCH' 
-                  ? (item.evidence ? `"${item.evidence}"` : 'Evidence unavailable')
-                  : `No reliable evidence for "${item.skill}" was found in the parsed resume.`}
-              </div>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '4px' }}>
+              <Quote size={14} style={{ color: 'var(--text-muted)' }} />
+              <strong style={{ color: 'var(--text-subtle)' }}>Extracted Evidence:</strong>
             </div>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', color: 'var(--text-subtle)' }}>
-              <div>
-                <span style={{ fontWeight: 600 }}>Match method:</span> {matchType.charAt(0).toUpperCase() + matchType.slice(1)}
-              </div>
-              <div>
-                <span style={{ fontWeight: 600 }}>Similarity:</span> {item.similarity ? item.similarity.toFixed(2) : 'N/A'}
-              </div>
+            <div style={{ whiteSpace: 'pre-wrap', paddingLeft: '22px' }}>
+              {item.evidence}
             </div>
           </div>
         )}
@@ -206,404 +212,286 @@ export default function CandidateDrawer({
     );
   };
 
-  return (
-    <div className="drawer-backdrop" onClick={onClose}>
-      <div className="drawer-panel" onClick={(e) => e.stopPropagation()}>
+  return createPortal(
+    <>
+      {/* Overlay */}
+      <div 
+        className="drawer-overlay"
+        onClick={onClose}
+      />
+      
+      {/* Drawer */}
+      <div className={`drawer-container open`}>
         {/* Header */}
         <div className="drawer-header">
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-              <span className="rank-badge rank-1">#{candidate.rank}</span>
-              <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-main)' }}>
-                {candidate.name}
+          <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              {/* Note: Rank is assumed 1 if not provided, you might need to pass rank if available */}
+              <span style={{
+                background: '#fde68a', color: '#b45309', padding: '4px 8px', borderRadius: '50%', fontWeight: 800, fontSize: '0.85rem'
+              }}>#{submission.rank || 1}</span>
+              <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '800', color: 'var(--text-main)' }}>
+                {contact.name || 'Unknown Candidate'}
               </h2>
-              <span className="score-pill score-high" style={{ fontSize: '1.05rem' }}>
-                {formatScore(score.overall_score)}% Overall Fit
+              {sa?.overall_score && (
+                <span className="chip chip-emerald" style={{ fontWeight: 600 }}>
+                  {formatScore(sa.overall_score)}% Overall Fit
+                </span>
+              )}
+              {submission.parser?.status === 'failed' && (
+                <span className="chip chip-amber" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <AlertTriangle size={12} />
+                  Parser Issues
+                </span>
+              )}
+            </div>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginTop: '12px', fontSize: '0.85rem', color: 'var(--text-subtle)', flexWrap: 'wrap' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Resume:</span> <strong style={{ color: 'var(--text-main)' }}>{submission.original_filename || 'Unknown.pdf'}</strong>
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Parse Method:</span> <strong style={{ color: 'var(--text-main)' }}>{submission.parser_method || submission.parser?.method || 'linear_fallback'}</strong>
               </span>
             </div>
 
-            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '14px', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-              <span>Resume: <strong>{candidate.filename}</strong></span>
-              <span>Parse Method: <strong>{candidate.parse_method}</strong></span>
-              {contact.email && (
-                <a href={`mailto:${contact.email}`} style={{ color: 'var(--primary-600)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <Mail size={13} /> {contact.email}
-                </a>
-              )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginTop: '8px', fontSize: '0.85rem', color: 'var(--text-subtle)', flexWrap: 'wrap' }}>
               {contact.phone && (
                 <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <Phone size={13} /> {contact.phone}
+                  <Phone size={14} /> {contact.phone}
                 </span>
               )}
+              {contact.email && (
+                <a href={`mailto:${contact.email}`} style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--primary-600)', textDecoration: 'none' }}>
+                  <Mail size={14} /> {contact.email}
+                </a>
+              )}
               {contact.linkedin && (
-                <a href={contact.linkedin} target="_blank" rel="noreferrer" style={{ color: '#0077b5', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <LinkedInIcon size={13} /> LinkedIn
+                <a href={contact.linkedin} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#0077b5', textDecoration: 'none' }}>
+                  <LinkedInIcon size={14} /> LinkedIn
                 </a>
               )}
               {contact.github && (
-                <a href={contact.github} target="_blank" rel="noreferrer" style={{ color: '#24292e', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <GitHubIcon size={13} /> GitHub
+                <a href={contact.github} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#333', textDecoration: 'none' }}>
+                  <GitHubIcon size={14} /> GitHub
                 </a>
               )}
             </div>
           </div>
-
+          
           <button
             onClick={onClose}
             style={{
-              background: '#f1f5f9',
+              background: 'transparent',
               border: 'none',
-              borderRadius: 'var(--radius-full)',
-              width: '36px',
-              height: '36px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
               cursor: 'pointer',
               color: 'var(--text-muted)',
+              padding: '4px'
             }}
           >
-            <X size={18} />
+            <X size={24} />
           </button>
         </div>
 
-        {/* Drawer Sub-tabs */}
-        <div style={{ padding: '0 28px', background: '#ffffff', borderBottom: '1px solid var(--border-subtle)' }}>
-          <div style={{ display: 'flex', gap: '20px' }}>
+        {!isScreened ? (
+           <div className="drawer-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '1rem', color: 'var(--text-muted)' }}>
+              <User size={48} style={{ color: 'var(--border-strong)' }} />
+              <h3>Candidate has not been screened yet.</h3>
+              <p>Close this panel and select "Screen Unscreened" to run the AI analysis.</p>
+           </div>
+        ) : (
+        <>
+          {/* Tabs */}
+          <div className="drawer-tabs">
             <button
+              className={`drawer-tab ${activeTab === 'breakdown' ? 'active' : ''}`}
               onClick={() => setActiveTab('breakdown')}
-              style={{
-                padding: '12px 4px',
-                background: 'none',
-                border: 'none',
-                borderBottom: activeTab === 'breakdown' ? '3px solid var(--primary-600)' : '3px solid transparent',
-                color: activeTab === 'breakdown' ? 'var(--primary-600)' : 'var(--text-muted)',
-                fontWeight: 700,
-                fontSize: '0.9rem',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-              }}
             >
               <Cpu size={16} />
-              <span>ATS Match & Evidence Breakdown</span>
+              Terminal Breakdown
             </button>
-
             <button
+              className={`drawer-tab ${activeTab === 'insights' ? 'active' : ''}`}
               onClick={() => setActiveTab('insights')}
-              style={{
-                padding: '12px 4px',
-                background: 'none',
-                border: 'none',
-                borderBottom: activeTab === 'insights' ? '3px solid var(--primary-600)' : '3px solid transparent',
-                color: activeTab === 'insights' ? 'var(--primary-600)' : 'var(--text-muted)',
-                fontWeight: 700,
-                fontSize: '0.9rem',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-              }}
             >
               <Sparkles size={16} />
-              <span>Gemini AI Insights & Recruiter Q&A</span>
+              AI Recruiter Insights
             </button>
           </div>
-        </div>
 
-        {/* Drawer Body */}
-        <div className="drawer-body">
-          {activeTab === 'breakdown' && (
-            <div>
-              {/* Parser Quality Warning if Degraded */}
-              {!validation.ok && (
-                <div
-                  style={{
-                    background: 'var(--amber-bg)',
-                    border: '1px solid var(--amber-border)',
-                    borderRadius: 'var(--radius-md)',
-                    padding: '14px 18px',
-                    marginBottom: '20px',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--amber-text)', fontWeight: 800, fontSize: '0.85rem' }}>
-                    <AlertTriangle size={16} />
-                    <span>PARSER QUALITY: {validation.extraction_status?.toUpperCase()}</span>
-                  </div>
-                  <ul style={{ marginTop: '8px', paddingLeft: '20px', fontSize: '0.8rem', color: 'var(--amber-text)' }}>
-                    {validation.warnings?.map((w, idx) => (
-                      <li key={idx}>[!] {w}</li>
-                    ))}
-                  </ul>
-                  <div style={{ fontSize: '0.75rem', marginTop: '6px', color: 'var(--amber-text)', fontStyle: 'italic' }}>
-                    Note: Parser quality is degraded. Score may not reflect true candidate profile. Manual review recommended.
-                  </div>
-                </div>
-              )}
-
-              {/* Scoring Weights Breakdown */}
-              <div className="section-box">
-                <div className="section-box-title">
-                  <Award size={16} color="var(--primary-600)" />
-                  <span>ATS Scoring Matrix (Deterministic)</span>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', textAlign: 'center' }}>
-                  <div style={{ background: '#ffffff', padding: '12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Required Skills (50%)</div>
-                    <div style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--emerald-text)' }}>
-                      {formatScore(score.required_skill_fit)}%
+          {/* Content Area */}
+          <div className="drawer-content">
+            
+            {/* -------------------- BREAKDOWN TAB -------------------- */}
+            {activeTab === 'breakdown' && (
+              <div className="tab-pane active">
+                
+                {/* Score Cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+                  <div className="card" style={{ padding: '16px', textAlign: 'center', borderTop: '4px solid var(--primary-500)' }}>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-subtle)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Overall Score
+                    </div>
+                    <div style={{ fontSize: '2.5rem', fontWeight: 800, color: 'var(--primary-700)', marginTop: '8px' }}>
+                      {formatScore(sa.overall_score)}%
                     </div>
                   </div>
-
-                  <div style={{ background: '#ffffff', padding: '12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Preferred Skills (20%)</div>
-                    <div style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--sky-text)' }}>
-                      {formatScore(score.preferred_skill_fit)}%
+                  
+                  <div className="card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Required Skills</span>
+                      <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{formatScore(sa.required_skill_score)}%</span>
                     </div>
-                  </div>
-
-                  <div style={{ background: '#ffffff', padding: '12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Experience Fit (30%)</div>
-                    <div style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--primary-600)' }}>
-                      {score.experience_fit !== null && score.experience_fit !== undefined
-                        ? `${formatScore(score.experience_fit)}%`
-                        : 'N/A'}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Preferred Skills</span>
+                      <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{formatScore(sa.preferred_skill_score)}%</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Experience ({sa.experience_years} yrs)</span>
+                      <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{formatScore(sa.experience_score)}%</span>
                     </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Candidate Extracted Profile */}
-              <div className="section-box">
-                <div className="section-box-title">
-                  <User size={16} color="var(--primary-600)" />
-                  <span>Candidate Profile & Detected Skills</span>
-                </div>
-                <div style={{ fontSize: '0.85rem', marginBottom: '10px' }}>
-                  <strong>Experience:</strong> {profile.experience_years !== null && profile.experience_years !== undefined ? `${profile.experience_years} years` : 'Unknown'}
-                  {profile.internship_years !== null && profile.internship_years !== undefined && ` | Internships: ${profile.internship_years} years`}
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                  {profile.skills?.map((skill, idx) => (
-                    <span key={idx} className="chip chip-slate" style={{ fontSize: '0.78rem' }}>
-                      {skill}
-                    </span>
-                  ))}
-                  {(!profile.skills || profile.skills.length === 0) && (
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-subtle)' }}>No technical skills detected</span>
-                  )}
-                </div>
-              </div>
-
-              {/* Semantic Matching */}
-              <div className="section-box">
-                <div className="section-box-title">
-                  <Brain size={16} color="var(--purple-main)" />
-                  <span>Semantic Matching (MiniLM Cosine Embeddings)</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                  <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Candidate ↔ Job Semantic Similarity:</span>
-                  <span className="chip chip-purple" style={{ fontWeight: 800 }}>
-                    {candidate.semantic_similarity?.toFixed(1)}%
-                  </span>
-                </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)' }}>
-                  Skill-level threshold: <strong>0.55</strong> | False-positive guards active (e.g. Java ↔ JavaScript, React ↔ React Native).
-                </div>
-              </div>
-
-              {/* Required Skills Match Breakdown */}
-              <div className="section-box">
-                <div className="section-box-title" style={{ color: 'var(--emerald-text)' }}>
-                  <CheckCircle2 size={16} />
-                  <span>Required Skills Matching ({score.required_results?.length || 0})</span>
-                </div>
+                {/* Requirements Evidence */}
                 <div>
-                  {score.required_results?.map((item, idx) => renderSkillItem(item, 'req', idx))}
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <CheckCircle2 size={18} style={{ color: 'var(--emerald-500)' }} />
+                    Skill Match Evidence
+                  </h3>
+                  
+                  <div>
+                    {matches.map((item, idx) => renderSkillItem(item, idx))}
+                  </div>
                 </div>
+
               </div>
+            )}
 
-              {/* Preferred Skills Match Breakdown */}
-              <div className="section-box">
-                <div className="section-box-title" style={{ color: 'var(--sky-text)' }}>
-                  <CheckCircle2 size={16} />
-                  <span>Preferred Skills Matching ({score.preferred_results?.length || 0})</span>
-                </div>
-                <div>
-                  {score.preferred_results?.map((item, idx) => renderSkillItem(item, 'pref', idx))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'insights' && (
-            <div>
-              {isLoadingInsights && (
-                <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-                  <Sparkles size={36} color="var(--primary-600)" className="pulse-card" style={{ margin: '0 auto 16px' }} />
-                  <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-main)' }}>
-                    Generating Recruiter Insights via Gemini...
+            {/* -------------------- INSIGHTS TAB -------------------- */}
+            {activeTab === 'insights' && (
+              <div className="tab-pane active" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                
+                {isLoadingInsights ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
+                    <Sparkles className="spin-animation" size={32} style={{ color: 'var(--accent-500)', marginBottom: '16px' }} />
+                    <div>Generating Gemini AI Insights...</div>
                   </div>
-                  <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Analyzing candidate strengths, skill gaps, experience relevance, and interview questions.
+                ) : insightError ? (
+                  <div className="auth-alert error">
+                    <AlertTriangle size={20} />
+                    <p>{insightError}</p>
+                    <button onClick={fetchInsights} className="btn btn-secondary btn-sm" style={{ marginTop: '10px' }}>
+                      Retry
+                    </button>
                   </div>
-                </div>
-              )}
-
-              {insightError && (
-                <div
-                  style={{
-                    background: 'var(--amber-bg)',
-                    border: '1px solid var(--amber-border)',
-                    borderRadius: 'var(--radius-md)',
-                    padding: '20px',
-                    textAlign: 'center',
-                  }}
-                >
-                  <AlertTriangle size={28} color="var(--amber-main)" style={{ margin: '0 auto 8px' }} />
-                  <div style={{ fontWeight: 700, color: 'var(--amber-text)' }}>AI Insights Unavailable</div>
-                  <div style={{ fontSize: '0.82rem', color: 'var(--amber-text)', marginTop: '6px' }}>
-                    {insightError}
-                  </div>
-                  <button
-                    onClick={fetchInsights}
-                    className="btn btn-accent btn-sm"
-                    style={{ marginTop: '14px' }}
-                  >
-                    Retry Insights Generation
-                  </button>
-                </div>
-              )}
-
-              {insightsData && !isLoadingInsights && (
-                <div>
-                  {/* Candidate Summary */}
-                  <div className="section-box">
-                    <div className="section-box-title">
-                      <Sparkles size={16} color="var(--primary-600)" />
-                      <span>Executive Recruiter Summary</span>
+                ) : insightsData ? (
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                    
+                    {/* Insights Summary */}
+                    <div className="card" style={{ padding: '20px', marginBottom: '24px', background: 'linear-gradient(to right, #fdf4ff, #faf5ff)', border: '1px solid #f3e8ff' }}>
+                      <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#7e22ce', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                        <Brain size={20} />
+                        Gemini Summary
+                      </h3>
+                      <p style={{ fontSize: '0.95rem', lineHeight: '1.6', color: 'var(--text-main)', margin: 0 }}>
+                        {insightsData.summary}
+                      </p>
                     </div>
-                    <p style={{ fontSize: '0.9rem', lineHeight: '1.6', color: 'var(--text-main)' }}>
-                      {insightsData.candidate_summary}
-                    </p>
-                  </div>
 
-                  {/* Strengths & Gaps Grid */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '22px' }}>
-                    <div style={{ background: 'var(--emerald-bg)', border: '1px solid var(--emerald-border)', borderRadius: 'var(--radius-md)', padding: '16px' }}>
-                      <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--emerald-text)', marginBottom: '8px' }}>
-                        Key Strengths
+                    {/* Chat Interface */}
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', background: '#ffffff', overflow: 'hidden' }}>
+                      
+                      <div style={{ padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid var(--border-subtle)', fontWeight: 600, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <MessageSquare size={16} />
+                        Chat with Gemini about {contact.name?.split(' ')[0] || 'this candidate'}
                       </div>
-                      <ul style={{ paddingLeft: '18px', fontSize: '0.82rem', color: 'var(--emerald-text)' }}>
-                        {insightsData.key_strengths?.map((s, i) => (
-                          <li key={i} style={{ marginBottom: '4px' }}>{s}</li>
+
+                      <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px', minHeight: '300px' }}>
+                        {chatMessages.length === 0 && (
+                          <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-muted)' }}>
+                            <HelpCircle size={32} style={{ opacity: 0.3, marginBottom: '8px' }} />
+                            <p style={{ fontSize: '0.9rem' }}>Ask questions about the candidate's experience, cultural fit, or missing skills.</p>
+                          </div>
+                        )}
+                        
+                        {chatMessages.map((msg, i) => (
+                          <div key={i} style={{
+                            alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                            maxWidth: '85%',
+                            padding: '10px 14px',
+                            borderRadius: '12px',
+                            background: msg.role === 'user' ? 'var(--primary-600)' : '#f1f5f9',
+                            color: msg.role === 'user' ? '#ffffff' : 'var(--text-main)',
+                            borderBottomRightRadius: msg.role === 'user' ? '2px' : '12px',
+                            borderBottomLeftRadius: msg.role === 'model' ? '2px' : '12px',
+                            fontSize: '0.9rem',
+                            lineHeight: '1.5'
+                          }}>
+                            {msg.role === 'model' && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px', fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>
+                                <Sparkles size={12} /> Gemini
+                              </div>
+                            )}
+                            {msg.content}
+                          </div>
                         ))}
-                      </ul>
-                    </div>
-
-                    <div style={{ background: 'var(--rose-bg)', border: '1px solid var(--rose-border)', borderRadius: 'var(--radius-md)', padding: '16px' }}>
-                      <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--rose-text)', marginBottom: '8px' }}>
-                        Skill Gaps & Missing Reqs
+                        
+                        {isSendingMessage && (
+                          <div style={{ alignSelf: 'flex-start', background: '#f1f5f9', padding: '10px 14px', borderRadius: '12px', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                            <span className="typing-indicator">...</span>
+                          </div>
+                        )}
                       </div>
-                      <ul style={{ paddingLeft: '18px', fontSize: '0.82rem', color: 'var(--rose-text)' }}>
-                        {insightsData.skill_gaps?.map((g, i) => (
-                          <li key={i} style={{ marginBottom: '4px' }}>{g}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
 
-                  {/* Experience Relevance & Concerns */}
-                  <div className="section-box">
-                    <div className="section-box-title">
-                      <span>Experience Alignment & Potential Concerns</span>
-                    </div>
-                    <div style={{ fontSize: '0.88rem', color: 'var(--text-main)', marginBottom: '10px' }}>
-                      <strong>Alignment:</strong> {insightsData.experience_relevance}
-                    </div>
-                    {insightsData.potential_concerns?.length > 0 && (
-                      <div style={{ fontSize: '0.82rem', color: 'var(--amber-text)' }}>
-                        <strong>Risks / Notes:</strong>
-                        <ul style={{ paddingLeft: '18px', marginTop: '4px' }}>
-                          {insightsData.potential_concerns.map((c, i) => (
-                            <li key={i}>{c}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Interview Focus Areas */}
-                  <div className="section-box">
-                    <div className="section-box-title">
-                      <HelpCircle size={16} color="var(--primary-600)" />
-                      <span>Recommended Interview Focus Questions</span>
-                    </div>
-                    <ul style={{ paddingLeft: '20px', fontSize: '0.88rem', color: 'var(--text-main)' }}>
-                      {insightsData.interview_focus_areas?.map((q, i) => (
-                        <li key={i} style={{ marginBottom: '8px' }}>
-                          {q}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  {/* Interactive Q&A Copilot */}
-                  <div className="section-box">
-                    <div className="section-box-title">
-                      <MessageSquare size={16} color="var(--primary-600)" />
-                      <span>Interactive Recruiter Q&A Copilot</span>
-                    </div>
-
-                    <div style={{ minHeight: '120px', maxHeight: '240px', overflowY: 'auto', marginBottom: '14px' }}>
-                      {chatMessages.length === 0 && (
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-subtle)', fontStyle: 'italic', textAlign: 'center', padding: '20px' }}>
-                          Ask specific follow-up questions about this candidate (e.g. "Does this candidate have experience with REST APIs and databases?").
-                        </div>
-                      )}
-                      {chatMessages.map((msg, idx) => (
-                        <div
-                          key={idx}
-                          className={`chat-bubble ${msg.role === 'user' ? 'chat-user' : 'chat-ai'}`}
+                      <form onSubmit={handleSendMessage} style={{ display: 'flex', padding: '12px', borderTop: '1px solid var(--border-subtle)', background: '#ffffff' }}>
+                        <input
+                          type="text"
+                          value={chatInput}
+                          onChange={(e) => setChatInput(e.target.value)}
+                          placeholder="e.g. Does she have experience with Docker in production?"
+                          style={{
+                            flex: 1,
+                            padding: '10px 14px',
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: '20px',
+                            outline: 'none',
+                            fontSize: '0.9rem'
+                          }}
+                          disabled={isSendingMessage}
+                        />
+                        <button
+                          type="submit"
+                          disabled={isSendingMessage || !chatInput.trim()}
+                          style={{
+                            background: chatInput.trim() ? 'var(--primary-600)' : 'var(--border-strong)',
+                            color: '#ffffff',
+                            border: 'none',
+                            borderRadius: '50%',
+                            width: '40px',
+                            height: '40px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            marginLeft: '8px',
+                            cursor: chatInput.trim() ? 'pointer' : 'not-allowed',
+                            transition: 'background 0.2s'
+                          }}
                         >
-                          <strong>{msg.role === 'user' ? 'You: ' : 'Gemini: '}</strong>
-                          {msg.content}
-                        </div>
-                      ))}
-                    </div>
+                          <Send size={16} style={{ marginLeft: '2px' }} />
+                        </button>
+                      </form>
 
-                    <form onSubmit={handleSendMessage} style={{ display: 'flex', gap: '8px' }}>
-                      <input
-                        type="text"
-                        placeholder="Ask a question about this candidate's fit..."
-                        value={chatInput}
-                        onChange={(e) => setChatInput(e.target.value)}
-                        disabled={isSendingMessage}
-                        style={{
-                          flex: 1,
-                          padding: '10px 14px',
-                          border: '1px solid var(--border-subtle)',
-                          borderRadius: 'var(--radius-md)',
-                          fontSize: '0.85rem',
-                          background: '#ffffff',
-                        }}
-                      />
-                      <button
-                        type="submit"
-                        disabled={isSendingMessage || !chatInput.trim()}
-                        className="btn btn-primary btn-sm"
-                      >
-                        <Send size={15} />
-                      </button>
-                    </form>
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+                ) : null}
+              </div>
+            )}
+          </div>
+        </>
+        )}
       </div>
-    </div>
+    </>,
+    document.body
   );
 }

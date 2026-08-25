@@ -6,8 +6,17 @@ from flask import Flask, request, jsonify
 # Import existing AI pipeline modules
 from ai_pipeline.main import process_resume
 from ai_pipeline.engine.scoring_engine import score_candidate
-from ai_pipeline.engine.gemini_insights import generate_recruiter_insights, answer_followup_question
 from ai_pipeline.engine.job_requirement_analyzer import analyze_job_description
+
+# Provider switch: set AI_PROVIDER=ollama in .env to use the local LLM instead of Gemini.
+AI_PROVIDER = os.environ.get("AI_PROVIDER", "gemini").strip().lower()
+
+if AI_PROVIDER == "ollama":
+    from ai_pipeline.engine.ollama_insights import generate_recruiter_insights, answer_followup_question
+else:
+    from ai_pipeline.engine.gemini_insights import generate_recruiter_insights, answer_followup_question
+
+print(f"AI insights provider: {AI_PROVIDER}")
 
 app = Flask(__name__)
 
@@ -93,7 +102,7 @@ def insights():
     }
     """
     data = request.get_json() or {}
-    
+
     try:
         result = generate_recruiter_insights(
             data.get("candidate_profile", {}),

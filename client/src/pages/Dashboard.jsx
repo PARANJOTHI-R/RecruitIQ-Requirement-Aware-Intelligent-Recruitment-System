@@ -95,7 +95,7 @@ export default function Dashboard() {
                       </span>
                     </td>
                     <td>
-                      {job.min_experience_years}+ years
+                      {job.min_exp}+ years
                     </td>
                     <td style={{ textAlign: 'right' }}>
                       <button onClick={() => navigate(`/jobs/workspace?id=${job.job_id}`)} className="btn btn-sm btn-secondary">Workspace</button>

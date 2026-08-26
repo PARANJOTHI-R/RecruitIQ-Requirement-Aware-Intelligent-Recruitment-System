@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, CheckCircle2, Circle } from 'lucide-react';
 
-export default function CandidateSelectionPanel({ onSelect, selectedResumes = [], onSubmit }) {
+export default function CandidateSelectionPanel({ onSelect, selectedResumes = [], onSubmit, existingSubmissions = [] }) {
   const [resumes, setResumes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -27,12 +27,24 @@ export default function CandidateSelectionPanel({ onSelect, selectedResumes = []
     }
   };
 
+  const submittedIds = existingSubmissions.map(s => s.resume_id);
+  const eligibleResumes = resumes.filter(r => !submittedIds.includes(r.resume_id));
+
   const toggleSelect = (resumeId) => {
+    if (submittedIds.includes(resumeId)) return;
     if (selectedResumes.includes(resumeId)) {
       onSelect(selectedResumes.filter(id => id !== resumeId));
     } else {
       onSelect([...selectedResumes, resumeId]);
     }
+  };
+
+  const handleSelectAll = () => {
+    onSelect(eligibleResumes.map(r => r.resume_id));
+  };
+
+  const handleClearSelection = () => {
+    onSelect([]);
   };
 
   if (loading) {
@@ -56,6 +68,14 @@ export default function CandidateSelectionPanel({ onSelect, selectedResumes = []
           </div>
         </div>
       </div>
+      <div style={{ display: 'flex', gap: '8px', padding: '0 20px 16px' }}>
+        <button onClick={handleSelectAll} className="btn btn-secondary btn-sm" disabled={eligibleResumes.length === 0}>
+          Select All Eligible ({eligibleResumes.length})
+        </button>
+        <button onClick={handleClearSelection} className="btn btn-secondary btn-sm" disabled={selectedResumes.length === 0}>
+          Clear Selection
+        </button>
+      </div>
 
       <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
         {resumes.length === 0 ? (
@@ -73,6 +93,8 @@ export default function CandidateSelectionPanel({ onSelect, selectedResumes = []
                 : (resume.parsed_resume_json || {});
               const name = parsedData.personal?.name || parsedData.contact?.name || "Unknown Candidate";
 
+              const isSubmitted = submittedIds.includes(resume.resume_id);
+
               return (
                 <li
                   key={resume.resume_id}
@@ -82,8 +104,9 @@ export default function CandidateSelectionPanel({ onSelect, selectedResumes = []
                     alignItems: 'center',
                     padding: '12px 16px',
                     borderBottom: '1px solid var(--border-subtle)',
-                    cursor: 'pointer',
+                    cursor: isSubmitted ? 'not-allowed' : 'pointer',
                     background: isSelected ? 'var(--primary-50)' : 'transparent',
+                    opacity: isSubmitted ? 0.6 : 1,
                     transition: 'background 0.2s'
                   }}
                 >
@@ -91,8 +114,13 @@ export default function CandidateSelectionPanel({ onSelect, selectedResumes = []
                     {isSelected ? <CheckCircle2 size={18} /> : <Circle size={18} />}
                   </div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.9rem' }}>
+                    <div style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
                       {name !== "Unknown Candidate" ? name : resume.original_filename}
+                      {isSubmitted ? (
+                        <span className="chip chip-slate" style={{ fontSize: '0.7rem', padding: '2px 6px' }}>Already submitted</span>
+                      ) : (
+                        <span className="chip chip-emerald" style={{ fontSize: '0.7rem', padding: '2px 6px' }}>Available</span>
+                      )}
                     </div>
                     {name !== "Unknown Candidate" && (
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-subtle)' }}>

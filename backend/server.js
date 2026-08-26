@@ -59,3 +59,19 @@ app.use('/api/screening', screeningRouter);
 app.use('/api/ai', aiRouter);
 
 app.listen(port, () => console.log(`Server started on PORT:${port}`));
+
+// ---------------------------------------------------------------------------
+// Global error handler — must be 4-argument middleware, placed after all routes.
+// Catches errors that slip through route-level handlers (e.g., body-parser
+// SyntaxError for malformed JSON requests, unexpected Multer errors, etc.).
+// Returns clean JSON so clients never see HTML stack traces.
+// ---------------------------------------------------------------------------
+app.use((err, req, res, next) => {
+    // Body-parser sends SyntaxError when request body is invalid JSON
+    if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+        return res.status(400).json({ success: false, message: 'Invalid JSON in request body.' });
+    }
+    // Log unexpected errors server-side (without leaking to client)
+    console.error('[server] Unhandled error:', err.message || err);
+    return res.status(500).json({ success: false, message: 'Internal server error.' });
+});

@@ -86,7 +86,7 @@ export default function RegisterPage() {
             className="btn btn-primary"
             style={{ width: '100%', marginTop: '0.5rem' }}
           >
-            {loading ? 'Creating account...' : 'Register'}
+            {loading ? 'Registering...' : 'Register'}
           </button>
         </form>
 

@@ -44,16 +44,17 @@ export const register = async (req, res) => {
             maxAge: 7 * 24 * 60 * 60 * 1000
         });
 
-        const mailOptions = {
+        // Respond immediately — email is fire-and-forget (Issue 4)
+        res.json({ success: true });
+
+        transporter.sendMail({
             from: process.env.SENDER_EMAIL,
             to: email,
             subject: 'Welcome to RecruiteIQ',
             text: `Welcome to RecruiteIQ website. Your account has been created with email id: ${email}`
-        };
+        }).catch(err => console.error('[mailer] send failed:', { to: email, subject: 'Welcome to RecruiteIQ', error: err.message }));
 
-        await transporter.sendMail(mailOptions);
-
-        return res.json({ success: true });
+        return;
 
     } catch (error) {
         return res.json({ success: false, message: error.message });
@@ -66,23 +67,39 @@ export const login = async (req, res) => {
         return res.json({ success: false, message: 'Email and Password are required' });
     }
 
+    // --- Stage timing instrumentation (identifies cold/warm login bottleneck) ---
+    const t0 = Date.now();
+
     try {
+        // Stage 1: DB query
         const recruiter = await findRecruiterByEmail(email);
+        const t1 = Date.now();
 
         if (!recruiter) {
+            console.info('[login-timing] DB=%dms (no user found) total=%dms', t1 - t0, t1 - t0);
             return res.json({ success: false, message: 'Invalid email' });
         }
 
+        // Stage 2: bcrypt comparison (CPU-bound)
         const isMatch = await bcrypt.compare(password, recruiter.password_hash);
+        const t2 = Date.now();
+
         if (!isMatch) {
+            console.info('[login-timing] DB=%dms bcrypt=%dms total=%dms', t1 - t0, t2 - t1, t2 - t0);
             return res.json({ success: false, message: 'Incorrect Password' });
         }
 
+        // Stage 3: JWT sign (synchronous, should be <5 ms)
+        const jwtStart = Date.now();
         const token = jwt.sign(
             { id: recruiter.recruiter_id },
             process.env.JWT_SECRET,
             { expiresIn: '7d' }
         );
+        const t3 = Date.now();
+
+        console.info('[login-timing] DB=%dms bcrypt=%dms jwt=%dms total=%dms',
+            t1 - t0, t2 - t1, t3 - jwtStart, t3 - t0);
 
         res.cookie('token', token, {
             httpOnly: true,
@@ -94,6 +111,8 @@ export const login = async (req, res) => {
         return res.json({ success: true });
 
     } catch (error) {
+        const tErr = Date.now();
+        console.error('[login-timing] error after %dms: %s', tErr - t0, error.message);
         return res.json({ success: false, message: error.message });
     }
 };
@@ -131,16 +150,17 @@ export const sendVerifyOtp = async (req, res) => {
 
         await updateVerificationOtp(recruiter.recruiter_id, otp, expiresAt);
 
-        const mailOptions = {
+        // Respond immediately — email is fire-and-forget (Issue 4)
+        res.json({ success: true, message: 'Verification Otp sent to Your Email' });
+
+        transporter.sendMail({
             from: process.env.SENDER_EMAIL,
             to: recruiter.email,
             subject: 'Account verification Otp',
             text: `Your otp is ${otp}. Verify your account using this Otp.`
-        };
+        }).catch(err => console.error('[mailer] send failed:', { to: recruiter.email, subject: 'Account verification Otp', error: err.message }));
 
-        await transporter.sendMail(mailOptions);
-
-        return res.json({ success: true, message: 'Verification Otp sent to Your Email' });
+        return;
 
     } catch (error) {
         return res.json({ success: false, message: error.message });
@@ -206,16 +226,17 @@ export const sendResetOtp = async (req, res) => {
 
         await updateResetOtp(recruiter.recruiter_id, otp, expiresAt);
 
-        const mailOptions = {
+        // Respond immediately — email is fire-and-forget (Issue 4)
+        res.json({ success: true, message: 'Otp sent to your mail' });
+
+        transporter.sendMail({
             from: process.env.SENDER_EMAIL,
             to: recruiter.email,
             subject: 'Password reset Otp',
             text: `Your otp is ${otp}. Reset your account Password using this Otp.`
-        };
+        }).catch(err => console.error('[mailer] send failed:', { to: recruiter.email, subject: 'Password reset Otp', error: err.message }));
 
-        await transporter.sendMail(mailOptions);
-
-        return res.json({ success: true, message: "Otp sent to your mail" });
+        return;
 
     } catch (error) {
         return res.json({ success: false, message: error.message });

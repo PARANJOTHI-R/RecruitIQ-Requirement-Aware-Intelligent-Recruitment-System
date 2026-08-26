@@ -71,29 +71,77 @@ export default function CandidateDrawer({
   }, [activeTab, submissionId, insightsData, isLoadingInsights, isScreened, analysisId]);
 
   const fetchInsights = async () => {
-    const requestedId = submissionId; // Capture at call time
+    const requestedId = submissionId; // capture at call time for stale-check
     setIsLoadingInsights(true);
     setInsightError(null);
     try {
-      const res = await fetch(`/api/ai/insights/${analysisId}`, {
-        method: 'POST',
-      });
+      const res = await fetch(`/api/ai/insights/${analysisId}`, { method: 'POST' });
       const data = await res.json();
-      
-      // Guard: only update state if this candidate is still selected
-      if (requestedId !== submissionId) return;
 
-      if (res.ok && data.success) {
+      if (requestedId !== submissionId) return; // stale — different candidate selected
+
+      if (res.ok && res.status === 200 && data.success) {
+        // Cache hit — immediate result, no polling needed
         setInsightsData(data.insight?.insight_data || data.insight);
-      } else {
-        setInsightError(data.message || 'Gemini insights are currently unavailable.');
+        return;
       }
+
+      if (res.status === 202 && data.jobId) {
+        // Job enqueued — poll for completion (polling manages its own loading state reset)
+        await pollInsightJob(data.jobId, requestedId);
+        return;
+      }
+
+      setInsightError(data.message || 'Gemini insights are currently unavailable.');
     } catch (err) {
       if (requestedId !== submissionId) return;
       setInsightError('Network error while retrieving insights: ' + err.message);
     } finally {
-      if (requestedId !== submissionId) return; // Don't reset loading for stale request
+      if (requestedId !== submissionId) return;
       setIsLoadingInsights(false);
+    }
+  };
+
+  // Poll GET /api/ai/insights/job/:jobId every 2s, up to 90s.
+  // Called inside fetchInsights try-block; fetchInsights finally resets loading state.
+  const pollInsightJob = async (jobId, requestedId) => {
+    const MAX_POLLS = 45;    // 45 * 2s = 90s
+    const INTERVAL_MS = 2000;
+
+    for (let i = 0; i < MAX_POLLS; i++) {
+      await new Promise(resolve => setTimeout(resolve, INTERVAL_MS));
+
+      if (requestedId !== submissionId) return; // drawer closed or candidate changed
+
+      try {
+        const pollRes = await fetch(`/api/ai/insights/job/${jobId}`);
+        const pollData = await pollRes.json();
+
+        if (requestedId !== submissionId) return;
+
+        if (pollData.status === 'complete' && pollData.success) {
+          setInsightsData(pollData.insight?.insight_data || pollData.insight);
+          return;
+        }
+
+        if (pollData.status === 'failed') {
+          setInsightError(pollData.error || 'AI insights generation failed. Please try again.');
+          return;
+        }
+
+        if (pollData.status === 'not_started') {
+          // Server restarted mid-job; job dropped. Let the user re-trigger.
+          setInsightError('Job lost (server restarted). Click the Insights tab again to retry.');
+          return;
+        }
+        // status === 'pending' | 'processing' — keep polling
+      } catch (_) {
+        // Network hiccup during poll — continue
+      }
+    }
+
+    if (requestedId === submissionId) {
+      setInsightError('Insight generation timed out (90s). Please try again.');
     }
   };
 

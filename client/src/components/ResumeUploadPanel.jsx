@@ -166,7 +166,7 @@ export default function ResumeUploadPanel({
           {isScreening ? (
             <>
               <span className="spinner-border" />
-              <span>Screening & Matching Candidates...</span>
+              <span>Uploading & Submitting...</span>
             </>
           ) : (
             <>

@@ -10,6 +10,15 @@ const { Pool } = pg;
 
 const pool = new Pool({
     connectionString: process.env.POSTGRES_URI,
+    // Neon Serverless tuning:
+    //   idleTimeoutMillis: keep connections warm for 30 s so repeated requests
+    //     (login, workspace, batch-start) don't pay the Neon compute cold-start
+    //     penalty (~1–3 s) after a period of inactivity.
+    //   max: cap at 10 to avoid exhausting Neon's connection limit on free/starter plans.
+    //   connectionTimeoutMillis: fail fast (5 s) rather than hanging if the pool is saturated.
+    max: 10,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000,
 });
 
 const connectDB = async () => {

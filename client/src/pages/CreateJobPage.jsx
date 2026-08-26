@@ -121,7 +121,7 @@ export default function CreateJobPage() {
                 disabled={analyzing || !jdText.trim()}
                 className="btn btn-primary btn-lg"
               >
-                {analyzing ? 'Analyzing with AI...' : 'Analyze JD'}
+                {analyzing ? 'Analyzing JD...' : 'Analyze JD'}
               </button>
             </div>
           </div>
@@ -187,7 +187,7 @@ export default function CreateJobPage() {
                 className="btn btn-primary"
                 style={{ backgroundColor: 'var(--emerald-main)', borderColor: 'var(--emerald-main)' }}
               >
-                {saving ? 'Saving...' : 'Confirm & Save Job'}
+                {saving ? 'Creating Job...' : 'Confirm & Save Job'}
               </button>
             </div>
           </div>

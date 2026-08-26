@@ -29,6 +29,7 @@ export default function JobWorkspace() {
 
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [screeningProgress, setScreeningProgress] = useState(null); // { done, total, failed }
   const [errorBanner, setErrorBanner] = useState(null);
 
   useEffect(() => {
@@ -136,37 +137,74 @@ export default function JobWorkspace() {
     }
   };
 
-  // Handle explicitly screening unscreened submissions
+  // Handle explicitly screening unscreened submissions (Issue 2 — single batch call)
   const handleScreenUnscreened = async () => {
     const unscreened = submissions.filter(s => s.screening.status !== 'screened');
-    if (unscreened.length === 0) return;
+    const screenableIds = unscreened
+      .filter(s => s.parser.status === 'ok' || s.parser.status === 'degraded')
+      .map(s => s.submission_id);
+
+    if (screenableIds.length === 0) return;
 
     setIsProcessing(true);
     setErrorBanner(null);
+    setScreeningProgress({ done: 0, total: screenableIds.length, failed: 0 });
 
-    let successCount = 0;
     try {
-      for (const sub of unscreened) {
-        if (sub.parser.status !== 'ok' && sub.parser.status !== 'degraded') {
-          continue; // Skip if not parsed successfully
-        }
+      // One request regardless of candidate count (was N serial POSTs)
+      const batchRes = await fetch('/api/screening/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submissionIds: screenableIds })
+      });
+      const batchData = await batchRes.json();
 
-        const screenRes = await fetch(`/api/screening/${sub.submission_id}`, { method: 'POST' });
-        const screenData = await screenRes.json();
-        if (screenData.success) {
-          successCount++;
-        }
+      if (!batchData.batchJobId) {
+        throw new Error(batchData.message || 'Failed to start batch screening');
       }
 
-      if (successCount > 0) {
-        try { confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } }); } catch (e) { }
-        loadJobWorkspace();
-      }
+      await pollBatchJob(batchData.batchJobId, screenableIds.length);
     } catch (err) {
       setErrorBanner(err.message);
     } finally {
       setIsProcessing(false);
+      setScreeningProgress(null);
     }
+  };
+
+  // Poll GET /api/screening/batch/:batchJobId every 2s, up to 5 min.
+  const pollBatchJob = async (batchJobId, total) => {
+    const MAX_POLLS = 150; // 150 * 2s = 5 min (generous for large batches)
+    const INTERVAL_MS = 2000;
+
+    for (let i = 0; i < MAX_POLLS; i++) {
+      await new Promise(r => setTimeout(r, INTERVAL_MS));
+
+      try {
+        const pollRes = await fetch(`/api/screening/batch/${batchJobId}`);
+        const pollData = await pollRes.json();
+
+        setScreeningProgress({
+          done: pollData.done || 0,
+          total: pollData.total || total,
+          failed: pollData.failed || 0
+        });
+
+        if (pollData.status === 'complete') {
+          if ((pollData.done || 0) > 0) {
+            try { confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } }); } catch (_) {}
+            loadJobWorkspace();
+          }
+          return;
+        }
+      } catch (_) {
+        // Network hiccup — keep polling
+      }
+    }
+
+    // Timed out — still refresh to show partial results
+    setErrorBanner('Batch screening timed out. Refreshing to show partial results.');
+    loadJobWorkspace();
   };
 
   const openCandidateDrawer = (candidate) => {
@@ -268,6 +306,7 @@ export default function JobWorkspace() {
                 selectedResumes={selectedPoolResumes}
                 onSelect={setSelectedPoolResumes}
                 onSubmit={handleSubmitPoolResumes}
+                existingSubmissions={submissions}
               />
             )}
 
@@ -294,7 +333,9 @@ export default function JobWorkspace() {
                   disabled={isProcessing}
                 >
                   <CheckCircle2 size={16} style={{ marginRight: '6px' }} />
-                  Screen Unscreened ({unscreenedCount})
+                  {screeningProgress
+                    ? `Screening ${screeningProgress.done}/${screeningProgress.total}…`
+                    : `Screen Unscreened (${unscreenedCount})`}
                 </button>
               )}
             </div>

@@ -21,16 +21,24 @@ export const getWorkspaceAggregate = async (jobId, limit = 100, offset = 0) => {
         [jobId]
     );
 
-    // 3. Get the bounded submissions with JSON aggregation for analysis and matches
+    // 3. Get bounded submissions with:
+    //    - Candidate contact fields extracted in SQL from parsed_resume_json (avoids shipping
+    //      the full JSONB blob over the wire for every row — the leaderboard only needs these 5 fields)
+    //    - skill_matches aggregated per analysis
     const submissionsQuery = await pool.query(
-        `SELECT 
+        `SELECT
             rs.submission_id,
             rs.resume_id,
             rs.submitted_at,
             r.original_filename,
             r.parser_status,
             r.parser_method,
-            r.parsed_resume_json,
+            -- Contact fields extracted in SQL; avoids fetching the full parsed_resume_json blob
+            COALESCE(r.parsed_resume_json #>> '{personal,name}',  r.parsed_resume_json #>> '{contact,name}')     AS candidate_name,
+            COALESCE(r.parsed_resume_json #>> '{personal,email}', r.parsed_resume_json #>> '{contact,email}')    AS candidate_email,
+            COALESCE(r.parsed_resume_json #>> '{personal,phone}', r.parsed_resume_json #>> '{contact,phone}')    AS candidate_phone,
+            COALESCE(r.parsed_resume_json #>> '{personal,linkedin}', r.parsed_resume_json #>> '{contact,linkedin}') AS candidate_linkedin,
+            COALESCE(r.parsed_resume_json #>> '{personal,github}', r.parsed_resume_json #>> '{contact,github}')  AS candidate_github,
             sa.analysis_id,
             sa.overall_score,
             sa.required_skill_score,
@@ -53,7 +61,7 @@ export const getWorkspaceAggregate = async (jobId, limit = 100, offset = 0) => {
                 ), '[]'::json)
                 FROM skill_matches sm
                 WHERE sm.analysis_id = sa.analysis_id
-            ) as skill_matches
+            ) AS skill_matches
          FROM resume_submissions rs
          JOIN resumes r ON r.resume_id = rs.resume_id
          LEFT JOIN screening_analyses sa ON sa.submission_id = rs.submission_id

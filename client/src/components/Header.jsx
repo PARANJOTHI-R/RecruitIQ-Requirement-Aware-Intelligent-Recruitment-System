@@ -1,7 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Layers, LogOut } from 'lucide-react';
 
 export default function Header({ user, onLogout, onNavigate, currentPath }) {
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await onLogout();
+    } finally {
+      setIsLoggingOut(false);
+    }
+  };
   return (
     <header className="app-header">
       <div className="brand cursor-pointer" onClick={() => onNavigate && onNavigate('/dashboard')}>
@@ -25,12 +34,13 @@ export default function Header({ user, onLogout, onNavigate, currentPath }) {
               {user.name} {user.email}
             </span>
             <button 
-              onClick={onLogout}
+              onClick={handleLogout}
+              disabled={isLoggingOut}
               className="btn btn-secondary btn-sm"
               title="Logout"
             >
               <LogOut size={14} />
-              <span>Logout</span>
+              <span>{isLoggingOut ? 'Logging out...' : 'Logout'}</span>
             </button>
           </>
         ) : (

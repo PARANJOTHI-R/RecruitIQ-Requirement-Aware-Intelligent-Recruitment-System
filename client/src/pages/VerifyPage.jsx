@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useHashRouter } from '../hooks/useHashRouter';
 import { AlertCircle, Layers } from 'lucide-react';
 
@@ -9,6 +9,8 @@ export default function VerifyPage() {
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const hasRequestedRef = useRef(false);
 
   useEffect(() => {
     // Extract email from hash query manually since we use hash router
@@ -42,9 +44,10 @@ export default function VerifyPage() {
     }
   };
 
-  const handleResend = async () => {
+  const handleResend = async (isAuto = false) => {
     setError('');
-    setMsg('');
+    setMsg(isAuto ? 'Sending verification code...' : '');
+    if (!isAuto) setIsSending(true);
     try {
       const res = await fetch('/api/auth/send-verify-otp', {
         method: 'POST',
@@ -55,12 +58,23 @@ export default function VerifyPage() {
       if (data.success) {
         setMsg('Verification code sent to your email.');
       } else {
-        setError(data.message || 'Failed to send OTP');
+        setMsg('');
+        setError(data.message || (isAuto ? 'Unable to send verification code. Please try Resend OTP.' : 'Failed to send OTP'));
       }
     } catch (err) {
+      setMsg('');
       setError(err.message);
+    } finally {
+      setIsSending(false);
     }
   };
+
+  useEffect(() => {
+    if (email && !hasRequestedRef.current) {
+      hasRequestedRef.current = true;
+      handleResend(true);
+    }
+  }, [email]);
 
   return (
     <div className="auth-container">
@@ -116,7 +130,12 @@ export default function VerifyPage() {
         </form>
 
         <div style={{ marginTop: '1.5rem', textAlign: 'center', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-          Didn't receive the code? <span style={{ color: 'var(--primary-600)', cursor: 'pointer', fontWeight: '500' }} onClick={handleResend}>Resend OTP</span>
+          Didn't receive the code?{' '}
+          {isSending ? (
+            <span style={{ color: 'var(--text-muted)' }}>Sending...</span>
+          ) : (
+            <span style={{ color: 'var(--primary-600)', cursor: 'pointer', fontWeight: '500' }} onClick={() => handleResend(false)}>Resend OTP</span>
+          )}
         </div>
       </div>
     </div>

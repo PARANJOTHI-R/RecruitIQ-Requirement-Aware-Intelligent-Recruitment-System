@@ -75,7 +75,7 @@ export default function LoginPage() {
             className="btn btn-primary"
             style={{ width: '100%', marginTop: '0.5rem' }}
           >
-            {loading ? 'Signing in...' : 'Sign in'}
+            {loading ? 'Logging in...' : 'Sign in'}
           </button>
         </form>
 

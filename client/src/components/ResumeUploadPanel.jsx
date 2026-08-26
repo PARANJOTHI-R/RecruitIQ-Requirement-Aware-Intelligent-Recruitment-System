@@ -1,11 +1,13 @@
 import React, { useState, useRef } from 'react';
 import { UploadCloud, File, Trash2, FolderPlus, Play, CheckCircle2, FileText } from 'lucide-react';
+import { StepLoader } from './Skeleton';
 
 export default function ResumeUploadPanel({
   resumeFiles,
   setResumeFiles,
   onScreen,
   isScreening,
+  processingState
 }) {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef(null);
@@ -155,28 +157,27 @@ export default function ResumeUploadPanel({
         )}
       </div>
 
-      {/* Action Button */}
+      {/* Action Area */}
       <div style={{ marginTop: '20px' }}>
-        <button
-          onClick={onScreen}
-          disabled={isScreening || resumeFiles.length === 0}
-          className="btn btn-primary btn-lg"
-          style={{ width: '100%' }}
-        >
-          {isScreening ? (
-            <>
-              <span className="spinner-border" />
-              <span>Uploading & Submitting...</span>
-            </>
-          ) : (
-            <>
-              <Play size={18} />
-              <span>
-                Screen {resumeFiles.length} Resumes
-              </span>
-            </>
-          )}
-        </button>
+        {isScreening ? (
+          <div className="card" style={{ border: '1px solid var(--primary-200)', background: '#f8fafc' }}>
+            <StepLoader 
+              currentFileIndex={processingState?.currentFileIndex || 1}
+              totalFiles={processingState?.totalFiles || 1}
+              stage={processingState?.stage || 'uploading'}
+            />
+          </div>
+        ) : (
+          <button
+            onClick={onScreen}
+            disabled={resumeFiles.length === 0}
+            className="btn btn-primary btn-lg"
+            style={{ width: '100%' }}
+          >
+            <Play size={18} />
+            <span>Screen {resumeFiles.length} Resumes</span>
+          </button>
+        )}
       </div>
     </div>
   );

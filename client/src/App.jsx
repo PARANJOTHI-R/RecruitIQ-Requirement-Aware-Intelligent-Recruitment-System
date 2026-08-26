@@ -1,6 +1,7 @@
 import React from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { useHashRouter } from './hooks/useHashRouter';
+import { AppBootLoader } from './components/Skeleton';
 
 // Pages
 import LandingPage from './pages/LandingPage';
@@ -19,7 +20,7 @@ function AppRouter() {
   const route = currentPath.split('?')[0];
 
   if (isLoading) {
-    return <div className="min-h-screen flex items-center justify-center text-gray-500">Loading RecruitIQ...</div>;
+    return <AppBootLoader />;
   }
 
   // Public Routes

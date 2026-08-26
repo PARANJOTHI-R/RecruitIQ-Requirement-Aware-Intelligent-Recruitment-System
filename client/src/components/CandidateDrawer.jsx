@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { LinkedInIcon, GitHubIcon } from './Icons';
 import { formatScore } from '../utils';
+import { SkeletonInsights } from './Skeleton';
 
 export default function CandidateDrawer({
   candidate: submission,
@@ -421,10 +422,7 @@ export default function CandidateDrawer({
               <div className="tab-pane active" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                 
                 {isLoadingInsights ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
-                    <Sparkles className="spin-animation" size={32} style={{ color: 'var(--accent-500)', marginBottom: '16px' }} />
-                    <div>Generating Gemini AI Insights...</div>
-                  </div>
+                  <SkeletonInsights />
                 ) : insightError ? (
                   <div className="auth-alert error">
                     <AlertTriangle size={20} />

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useHashRouter } from '../hooks/useHashRouter';
 import Header from '../components/Header';
+import { TopProgressBar, SkeletonBox, SkeletonTable } from '../components/Skeleton';
 import { Briefcase, Users, FileText, Activity } from 'lucide-react';
 
 export default function Dashboard() {
@@ -34,45 +35,69 @@ export default function Dashboard() {
       <Header user={user} onLogout={logout} onNavigate={navigate} currentPath="/dashboard" />
 
       <main className="page-content">
-        <div className="page-header">
+        {loading && <TopProgressBar />}
+        
+        <div className={`page-header ${!loading ? 'fade-in' : ''}`}>
           <h1 className="page-title">Welcome, {user?.name}</h1>
-          <button onClick={() => navigate('/jobs/create')} className="btn btn-primary">
+          <button onClick={() => navigate('/jobs/create')} className="btn btn-primary" disabled={loading}>
             Create New Job
           </button>
         </div>
 
         <div className="stats-grid">
-          <div className="stat-card">
-            <div className="stat-icon indigo">
-              <Briefcase size={24} />
-            </div>
-            <div className="stat-content">
-              <p>Total Jobs</p>
-              <h3>{jobs.length}</h3>
-            </div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-icon emerald">
-              <Activity size={24} />
-            </div>
-            <div className="stat-content">
-              <p>Open Jobs</p>
-              <h3>{openJobs}</h3>
-            </div>
-          </div>
+          {loading ? (
+            <>
+              <div className="stat-card" style={{ padding: '24px' }}>
+                <SkeletonBox width="48px" height="48px" borderRadius="var(--radius-md)" style={{ marginRight: '16px' }} />
+                <div style={{ flex: 1 }}>
+                  <SkeletonBox width="40%" height="12px" style={{ marginBottom: '8px' }} />
+                  <SkeletonBox width="20%" height="28px" />
+                </div>
+              </div>
+              <div className="stat-card" style={{ padding: '24px' }}>
+                <SkeletonBox width="48px" height="48px" borderRadius="var(--radius-md)" style={{ marginRight: '16px' }} />
+                <div style={{ flex: 1 }}>
+                  <SkeletonBox width="40%" height="12px" style={{ marginBottom: '8px' }} />
+                  <SkeletonBox width="20%" height="28px" />
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="stat-card fade-in">
+                <div className="stat-icon indigo">
+                  <Briefcase size={24} />
+                </div>
+                <div className="stat-content">
+                  <p>Total Jobs</p>
+                  <h3>{jobs.length}</h3>
+                </div>
+              </div>
+              <div className="stat-card fade-in">
+                <div className="stat-icon emerald">
+                  <Activity size={24} />
+                </div>
+                <div className="stat-content">
+                  <p>Open Jobs</p>
+                  <h3>{openJobs}</h3>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
-        <h2 className="page-title" style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>Your Jobs</h2>
+        <h2 className={`page-title ${!loading ? 'fade-in' : ''}`} style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>Your Jobs</h2>
+        
         {loading ? (
-          <div className="empty-state">Loading jobs...</div>
+          <SkeletonTable rows={4} columns={4} />
         ) : jobs.length === 0 ? (
-          <div className="empty-state">
+          <div className="empty-state fade-in">
             <Briefcase size={48} style={{ margin: '0 auto 1rem', color: 'var(--text-light)' }} />
             <p style={{ fontSize: '1.125rem', color: 'var(--text-main)', fontWeight: '500' }}>No jobs created yet.</p>
             <button onClick={() => navigate('/jobs/create')} className="btn btn-secondary" style={{ marginTop: '1rem' }}>Create your first job</button>
           </div>
         ) : (
-          <div className="table-card">
+          <div className="table-card fade-in">
             <table className="custom-table">
               <thead>
                 <tr>

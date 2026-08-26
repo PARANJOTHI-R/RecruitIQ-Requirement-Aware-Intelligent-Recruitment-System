@@ -1,10 +1,12 @@
 import fs from 'fs';
+import crypto from 'crypto';
 import {
     createResume,
     getResumesByRecruiter,
     getResumeById,
     updateResumeParseResult,
-    deleteResume
+    deleteResume,
+    findResumeByHash
 } from '../models/resumeModel.js';
 
 // aiService is injected at runtime — only available after Phase 7.
@@ -20,11 +22,23 @@ export const uploadResumeHandler = async (req, res) => {
     const { originalname, path: storedPath } = req.file;
 
     try {
+        const fileBuffer = fs.readFileSync(storedPath);
+        const fileHash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+
+        // Safe duplicate detection (returns the existing record, avoiding re-parsing)
+        const existingResume = await findResumeByHash(req.userId, fileHash);
+        if (existingResume) {
+            // Delete the newly uploaded file to save space since we have an identical one
+            try { fs.unlinkSync(storedPath); } catch (_) { }
+            return res.json({ success: true, resume: existingResume, message: 'Duplicate detected, using existing resume.' });
+        }
+
         // Create the resume record with parser_status = 'pending'
         const resume = await createResume({
             recruiterId: req.userId,
             originalFilename: originalname,
-            storedPath
+            storedPath,
+            fileHash
         });
 
         // Attempt parse if AI service is available

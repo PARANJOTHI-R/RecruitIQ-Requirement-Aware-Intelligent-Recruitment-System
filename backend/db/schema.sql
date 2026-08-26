@@ -79,7 +79,10 @@ CREATE TABLE IF NOT EXISTS resumes (
                             CHECK (parser_status IN ('pending', 'ok', 'degraded', 'failed')),
     parser_method       TEXT,
     uploaded_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    file_hash           TEXT,
+    
+    CONSTRAINT uq_recruiter_file_hash UNIQUE (recruiter_id, file_hash)
 );
 
 CREATE INDEX IF NOT EXISTS idx_resumes_recruiter_id ON resumes(recruiter_id);

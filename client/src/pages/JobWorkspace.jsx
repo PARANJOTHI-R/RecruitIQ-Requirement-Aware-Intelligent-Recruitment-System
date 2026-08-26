@@ -6,6 +6,7 @@ import ResumeUploadPanel from '../components/ResumeUploadPanel';
 import CandidateSelectionPanel from '../components/CandidateSelectionPanel';
 import LeaderboardTable from '../components/LeaderboardTable';
 import CandidateDrawer from '../components/CandidateDrawer';
+import { TopProgressBar, SkeletonCard, SkeletonTable, SkeletonBox } from '../components/Skeleton';
 import { Briefcase, AlertCircle, FileText, CheckCircle2, User } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -29,6 +30,7 @@ export default function JobWorkspace() {
 
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingState, setProcessingState] = useState({ currentFileIndex: 0, totalFiles: 0, stage: 'uploading' });
   const [screeningProgress, setScreeningProgress] = useState(null); // { done, total, failed }
   const [errorBanner, setErrorBanner] = useState(null);
 
@@ -73,11 +75,15 @@ export default function JobWorkspace() {
     }
 
     setIsProcessing(true);
+    setProcessingState({ currentFileIndex: 1, totalFiles: stagedFiles.length, stage: 'uploading' });
     setErrorBanner(null);
 
     let successCount = 0;
     try {
-      for (const file of stagedFiles) {
+      for (let i = 0; i < stagedFiles.length; i++) {
+        const file = stagedFiles[i];
+        setProcessingState({ currentFileIndex: i + 1, totalFiles: stagedFiles.length, stage: 'uploading' });
+        
         // 1. Upload physical resume
         const formData = new FormData();
         formData.append('resume', file);
@@ -90,6 +96,7 @@ export default function JobWorkspace() {
         const resumeId = uploadData.resume.resume_id;
 
         // 2. Create submission
+        setProcessingState({ currentFileIndex: i + 1, totalFiles: stagedFiles.length, stage: 'submitting' });
         const subRes = await fetch('/api/submissions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -220,9 +227,19 @@ export default function JobWorkspace() {
     return (
       <div className="page-container">
         <Header user={user} onLogout={logout} onNavigate={navigate} currentPath="/jobs/workspace" />
-        <div className="page-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
-          Loading Job Workspace...
-        </div>
+        <TopProgressBar />
+        <main className="page-content" style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '2rem' }}>
+          <div>
+            <SkeletonCard lines={6} />
+          </div>
+          <div>
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
+              <SkeletonBox width="100px" height="38px" borderRadius="var(--radius-md)" />
+              <SkeletonBox width="100px" height="38px" borderRadius="var(--radius-md)" />
+            </div>
+            <SkeletonTable rows={5} columns={3} />
+          </div>
+        </main>
       </div>
     );
   }
@@ -230,7 +247,7 @@ export default function JobWorkspace() {
   const unscreenedCount = submissions.filter(s => s.screening.status !== 'screened').length;
 
   return (
-    <div className="page-container" style={{ position: 'relative' }}>
+    <div className="page-container fade-in" style={{ position: 'relative' }}>
       <Header user={user} onLogout={logout} onNavigate={navigate} currentPath="/jobs/workspace" />
 
       <main className="page-content">
@@ -306,7 +323,8 @@ export default function JobWorkspace() {
                 selectedResumes={selectedPoolResumes}
                 onSelect={setSelectedPoolResumes}
                 onSubmit={handleSubmitPoolResumes}
-                existingSubmissions={submissions}
+                jobId={jobId}
+                isProcessing={isProcessing}
               />
             )}
 
@@ -316,6 +334,7 @@ export default function JobWorkspace() {
                 setResumeFiles={setStagedFiles}
                 onScreen={handleUploadAndSubmit}
                 isScreening={isProcessing}
+                processingState={processingState}
                 buttonText="Upload & Submit to Job"
               />
             )}

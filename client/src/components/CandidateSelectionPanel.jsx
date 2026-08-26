@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { User, CheckCircle2, Circle } from 'lucide-react';
+import { SkeletonTable } from './Skeleton';
 
-export default function CandidateSelectionPanel({ onSelect, selectedResumes = [], onSubmit, existingSubmissions = [] }) {
+export default function CandidateSelectionPanel({ onSelect, selectedResumes = [], onSubmit, jobId, isProcessing }) {
   const [resumes, setResumes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -27,11 +28,13 @@ export default function CandidateSelectionPanel({ onSelect, selectedResumes = []
     }
   };
 
-  const submittedIds = existingSubmissions.map(s => s.resume_id);
-  const eligibleResumes = resumes.filter(r => !submittedIds.includes(r.resume_id));
+  // Eligible means NOT submitted to the CURRENT job
+  const eligibleResumes = resumes.filter(r => !r.submitted_job_ids?.includes(jobId));
 
   const toggleSelect = (resumeId) => {
-    if (submittedIds.includes(resumeId)) return;
+    const resume = resumes.find(r => r.resume_id === resumeId);
+    if (resume?.submitted_job_ids?.includes(jobId)) return; // prevent selecting already submitted
+
     if (selectedResumes.includes(resumeId)) {
       onSelect(selectedResumes.filter(id => id !== resumeId));
     } else {
@@ -48,7 +51,11 @@ export default function CandidateSelectionPanel({ onSelect, selectedResumes = []
   };
 
   if (loading) {
-    return <div className="card" style={{ padding: '20px', color: 'var(--text-muted)' }}>Loading your candidate pool...</div>;
+    return (
+      <div className="card" style={{ padding: '20px' }}>
+        <SkeletonTable rows={4} columns={2} />
+      </div>
+    );
   }
 
   if (error) {
@@ -93,7 +100,9 @@ export default function CandidateSelectionPanel({ onSelect, selectedResumes = []
                 : (resume.parsed_resume_json || {});
               const name = parsedData.personal?.name || parsedData.contact?.name || "Unknown Candidate";
 
-              const isSubmitted = submittedIds.includes(resume.resume_id);
+              const submittedJobs = resume.submitted_job_ids || [];
+              const isSubmitted = submittedJobs.includes(jobId);
+              const otherJobsCount = submittedJobs.filter(id => id !== jobId).length;
 
               return (
                 <li
@@ -119,12 +128,17 @@ export default function CandidateSelectionPanel({ onSelect, selectedResumes = []
                       {isSubmitted ? (
                         <span className="chip chip-slate" style={{ fontSize: '0.7rem', padding: '2px 6px' }}>Already submitted</span>
                       ) : (
-                        <span className="chip chip-emerald" style={{ fontSize: '0.7rem', padding: '2px 6px' }}>Available</span>
+                        <span className="chip chip-emerald" style={{ fontSize: '0.7rem', padding: '2px 6px' }}>Available for this job</span>
                       )}
                     </div>
                     {name !== "Unknown Candidate" && (
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-subtle)' }}>
-                        {resume.original_filename}
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-subtle)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span>{resume.original_filename}</span>
+                        {otherJobsCount > 0 && !isSubmitted && (
+                          <span style={{ fontStyle: 'italic', color: 'var(--text-muted)' }}>
+                            • Used for {otherJobsCount} other job{otherJobsCount > 1 ? 's' : ''}
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>
@@ -143,8 +157,15 @@ export default function CandidateSelectionPanel({ onSelect, selectedResumes = []
           <div style={{ fontSize: '0.9rem', color: 'var(--text-subtle)' }}>
             {selectedResumes.length} candidate(s) selected
           </div>
-          <button onClick={onSubmit} className="btn btn-primary">
-            Submit Selected to Job
+          <button onClick={onSubmit} className="btn btn-primary" disabled={isProcessing}>
+            {isProcessing ? (
+              <>
+                <span className="spinner-border" />
+                <span>Submitting...</span>
+              </>
+            ) : (
+              'Submit Selected to Job'
+            )}
           </button>
         </div>
       )}

@@ -22,6 +22,10 @@
   --text-subtle: #64748b;
   --text-light: #94a3b8;
 
+  /* Skeleton Loading Colors */
+  --skeleton-base: #e2e8f0;
+  --skeleton-shimmer: #f1f5f9;
+
   /* Primary Brand (Indigo / Violet) */
   --primary-50: #eef2ff;
   --primary-100: #e0e7ff;
@@ -797,6 +801,54 @@ button, input, textarea, select {
   justify-content: center;
   background-color: var(--bg-main);
   padding: 3rem 1.5rem;
+}
+
+/* ==========================================================================
+   Skeleton Loading System
+   ========================================================================== */
+
+.skeleton {
+  background: var(--skeleton-base);
+  background: linear-gradient(
+    90deg,
+    var(--skeleton-base) 25%,
+    var(--skeleton-shimmer) 37%,
+    var(--skeleton-base) 63%
+  );
+  background-size: 400% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.2s ease-out forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+    background: var(--skeleton-base);
+  }
+  .pulse-card,
+  .top-progress-bar-inner {
+    animation: none !important;
+  }
+  .fade-in {
+    animation: none;
+  }
 }
 
 .auth-header {
